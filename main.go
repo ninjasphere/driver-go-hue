@@ -81,40 +81,6 @@ func getUser(bridge *hue.Bridge) *hue.User {
 	return user
 }
 
-func main() {
-
-	conn, err := ninja.Connect("10.0.1.171", 1883, "com.ninjablocks.hue") //TODO variable mqtt host and ID
-
-	bus, err := conn.AnnounceDriver("com.ninjablocks.hue", "driver-hue", getCurDir())
-	if err != nil {
-		log.Fatalf("Could not get driver bus: %s", err)
-	}
-
-	bridge := getBridge()
-	user := getUser(bridge)
-
-	allLights, err := user.GetLights()
-	if err != nil {
-		log.Fatalf("Couldn't get lights:  %s", err)
-	}
-
-	for _, l := range allLights {
-		_, err := NewLight(&l, bus, bridge, user)
-		if err != nil {
-			log.Fatalf("Error creating light instance:  %s", err)
-		}
-
-	}
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
-
-	// Block until a signal is received.
-	s := <-c
-	fmt.Println("Got signal:", s)
-
-}
-
 func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*Light, error) { //TODO cut this down!
 
 	lightState := createLightState()
@@ -308,5 +274,39 @@ func (l Light) refreshLightState() {
 
 func printState(s *hue.LightState) {
 	log.Printf(" on:%t brightness: %d hue: %d sat: %d x,y: %f, %f colortemp: %d alert: %s effect: %s color mode: %s reachable: %t", *s.On, *s.Brightness, *s.Hue, *s.Saturation, s.XY[0], s.XY[1], *s.ColorTemp, s.Alert, s.Effect, s.ColorMode, s.Reachable)
+
+}
+
+func main() {
+
+	conn, err := ninja.Connect("10.0.1.171", 1883, "com.ninjablocks.hue") //TODO variable mqtt host and ID
+
+	bus, err := conn.AnnounceDriver("com.ninjablocks.hue", "driver-hue", getCurDir())
+	if err != nil {
+		log.Fatalf("Could not get driver bus: %s", err)
+	}
+
+	bridge := getBridge()
+	user := getUser(bridge)
+
+	allLights, err := user.GetLights()
+	if err != nil {
+		log.Fatalf("Couldn't get lights:  %s", err)
+	}
+
+	for _, l := range allLights {
+		_, err := NewLight(&l, bus, bridge, user)
+		if err != nil {
+			log.Fatalf("Error creating light instance:  %s", err)
+		}
+
+	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, os.Kill)
+
+	// Block until a signal is received.
+	s := <-c
+	fmt.Println("Got signal:", s)
 
 }
