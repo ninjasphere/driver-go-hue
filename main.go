@@ -25,19 +25,25 @@ type Light struct {
 	Bridge        *hue.Bridge
 	User          *hue.User
 	LightState    *hue.LightState
+	Batch					*bool
 }
 
-func (fl Light) SendOnOffState(state bool) error {
 
-	js, _ := simplejson.NewJson([]byte(`{
-    "state": ""
-  }`))
-
-	js.Set("state", state)
-
-	return fl.OnOffBus.SendEvent("state", js)
-
+//Returns json state as defined by Ninja light protocol
+func (l Light) GetJsonLightState() (*simplejson.Json) {
+	st := l.LightState
+	js := simplejson.New()
+	js.Set("on",st.On)
+	js.Set("bri",st.Brightness)
+	js.Set("sat",st.Saturation)
+	js.Set("hue",st.Hue)
+	js.Set("ct",st.ColorTemp)
+	js.Set("transitionTime", st.TransitionTime)
+	js.Set("alert", st.Alert)
+	js.Set("xy", st.XY)
+	return js
 }
+
 
 func getBridge() *hue.Bridge {
 	nobridge := true
@@ -93,16 +99,17 @@ func getUser(bridge *hue.Bridge) *hue.User {
 func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*Light, error) { //TODO cut this down!
 
 	lightState := createLightState()
-
+	batch := false
 	light := &Light{
 		Id:         l.Id,
 		Name:       l.Name,
 		Bridge:     bridge,
 		User:       user,
 		LightState: lightState,
+		Batch:			&batch,
 	}
 
-	sigs, err := simplejson.NewJson([]byte(`{
+	sigs, _ := simplejson.NewJson([]byte(`{
 			"ninja:manufacturer": "Phillips",
 			"ninja:productName": "Hue",
 			"manufacturer:productModelId": "",
@@ -110,17 +117,8 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 			"ninja:thingType": "light"
 	}`))
 
-	if err != nil {
-		log.Fatalf("Bad sig json: %s", err)
-	}
-
-	la, err := user.GetLightAttributes(l.Id)
-	if err != nil {
-		log.Fatalf("Bad sig json: %s", err)
-	}
+	la, _ := user.GetLightAttributes(l.Id)
 	sigs.Set("manufacturer:productModelId", la.ModelId)
-
-	log.Printf("Made light, id: %s, name: %s, signature: %s", l.Id, l.Name, sigs)
 
 	deviceBus, _ := bus.AnnounceDevice(l.Id, "hue", l.Name, sigs)
 	light.Bus = deviceBus
@@ -142,8 +140,8 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 			light.turnOnOff(state)
 		default:
 			log.Printf("On-off got an unknown method %s", method)
+			return
 		}
-
 	})
 	light.OnOffBus = onOffBus
 
@@ -163,7 +161,6 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 	light.brightnessBus = brightnessBus
 
 	colorBus, _ := light.Bus.AnnounceChannel("color", "color", methods, events, func(method string, payload *simplejson.Json) {
-		log.Printf("Received actuation to change color, payload is: %s", payload)
 		mode, _ := payload.Get("mode").String()
 		log.Printf("Unsupported mode %s", mode)
 		switch method {
@@ -183,6 +180,7 @@ func (l Light) turnOnOff(state bool) {
 	l.refreshLightState()
 	l.LightState.On = &state
 	l.User.SetLightState(l.Id, l.LightState)
+	l.OnOffBus.SendEvent("state", l.GetJsonLightState())
 }
 
 func (l Light) setBrightness(fbrightness float64) {
@@ -190,9 +188,9 @@ func (l Light) setBrightness(fbrightness float64) {
 	on := bool(true)
 	l.LightState.Brightness = &brightness
 	l.LightState.On = &on
-	log.Printf("Setting brightness, fbrightness: %f, brightness: %d", fbrightness, brightness)
 	l.refreshLightState()
 	l.User.SetLightState(l.Id, l.LightState)
+	l.brightnessBus.SendEvent("state", l.GetJsonLightState())
 
 }
 
@@ -222,7 +220,7 @@ func (l Light) setColor(payload *simplejson.Json, mode string) {
 	}
 	l.refreshLightState()
 	l.User.SetLightState(l.Id, l.LightState)
-
+	l.colorBus.SendEvent("state", l.GetJsonLightState())
 }
 
 func createLightState() *hue.LightState {
@@ -279,6 +277,7 @@ func (l Light) refreshLightState() {
 	mybulbstate.Alert = bulbstate.Alert
 	mybulbstate.Effect = bulbstate.Effect
 	mybulbstate.TransitionTime = &transtime
+
 }
 
 func printState(s *hue.LightState) {
@@ -319,3 +318,8 @@ func main() {
 	fmt.Println("Got signal:", s)
 
 }
+
+// func verifyState (sent *simpleJson) bool {
+	//if sent state == current state, return true
+	//else return false
+// }
