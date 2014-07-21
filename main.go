@@ -61,9 +61,7 @@ func getUser(bridge *hue.Bridge) *hue.User {
 	noUser := true
 	retries := 0
 	for noUser {
-		// user, err = bridge.CreateUser("ninjadevice", "ninjausername")
-		user, err = bridge.CreateUser("ninjadevice", "newdeveloper")
-
+		user, err = bridge.CreateUser("ninjadevice", "ninjausername")
 		if err != nil {
 			if strings.Contains(err.Error(), "101") { // there's probably a nicer way to check this
 				retries++

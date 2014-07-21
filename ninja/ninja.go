@@ -1,6 +1,7 @@
 package ninja
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"github.com/bitly/go-simplejson"
 	"io/ioutil"
 	"log"
+	"os/exec"
 	"time"
 )
 
@@ -46,7 +48,8 @@ func (n NinjaConnection) AnnounceDriver(id string, name string, path string) (*D
 		log.Fatalf("Bad json: %s", err)
 	}
 
-	pkginfo := getDriverInfo(path + "package.json")
+	driverinfofile := path + "package.json"
+	pkginfo := getDriverInfo(driverinfofile)
 	filename, err := pkginfo.Get("main").String()
 	if err != nil {
 		log.Fatalf("Couldn't retrieve main filename: %s", err)
@@ -60,7 +63,7 @@ func (n NinjaConnection) AnnounceDriver(id string, name string, path string) (*D
 	js.Set("time", time.Now().Unix())
 	json, _ := js.MarshalJSON()
 
-	serial := "TEST" //TODO: get config
+	serial := GetSerial()
 	version, err := pkginfo.Get("version").String()
 	if err != nil {
 		log.Fatalf("No version available for driver %s: %s", id, err)
@@ -281,4 +284,15 @@ func strArrayToJson(in []string) *simplejson.Json {
 	}
 
 	return out
+}
+
+func GetSerial() string {
+	cmd := exec.Command("./sphere-serial") //TODO: change to "sphere-serial" once path has been added to image
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return out.String()
 }
