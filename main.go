@@ -60,20 +60,31 @@ func getUser(bridge *hue.Bridge) *hue.User {
 	var err error
 	noUser := true
 	retries := 0
-	for noUser {
-		user, err = bridge.CreateUser("ninjadevice", "ninjausername")
-		if err != nil {
-			if strings.Contains(err.Error(), "101") { // there's probably a nicer way to check this
-				retries++
-				log.Printf("Couldn't make user, push link button. Retry: %d", retries)
-				time.Sleep(time.Second * 2) //this sucks
-			} else {
-				log.Fatalf("Error creating user: %s", err)
-			}
-		}
+	username := ninja.GetSerial() + ninja.GetSerial() //username must be long 10-40 characters
 
-		if user != nil {
-			noUser = false
+	isvaliduser, err := bridge.IsValidUser(username)
+	if err != nil {
+		log.Printf("Problem determining if hue user is valid")
+	}
+
+	if isvaliduser {
+		user = hue.NewUserWithBridge(username, bridge)
+	} else {
+		for noUser {
+			user, err = bridge.CreateUser("ninjadevice", username)
+			if err != nil {
+				if strings.Contains(err.Error(), "101") { // there's probably a nicer way to check this
+					retries++
+					log.Printf("Couldn't make user, push link button. Retry: %d", retries)
+					time.Sleep(time.Second * 2) //this sucks
+				} else {
+					log.Fatalf("Error creating user: %s", err)
+				}
+			}
+
+			if user != nil {
+				noUser = false
+			}
 		}
 	}
 	return user
