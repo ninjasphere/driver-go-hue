@@ -12,11 +12,8 @@ import (
 )
 
 func Connect(host string, port int, clientId string) (*NinjaConnection, error) {
-	fmt.Sprintf("Connecting to mqtt server %s:%d", host, port)
-
 	mqttServer := fmt.Sprintf("tcp://%s:%d", host, port)
 	conn := NinjaConnection{}
-
 	opts := MQTT.NewClientOptions().SetBroker(mqttServer).SetClientId(clientId).SetCleanSession(true).SetTraceLevel(MQTT.Off)
 	conn.mqtt = MQTT.NewClient(opts)
 	_, err := conn.mqtt.Start()
@@ -25,7 +22,6 @@ func Connect(host string, port int, clientId string) (*NinjaConnection, error) {
 	} else {
 		log.Printf("Connected to %s\n", host)
 	}
-
 	return &conn, nil
 }
 
@@ -51,12 +47,12 @@ func (n NinjaConnection) AnnounceDriver(id string, name string, path string) (*D
 	}
 
 	pkginfo := getDriverInfo(path + "package.json")
-	tmp, err := pkginfo.Get("main").String()
+	filename, err := pkginfo.Get("main").String()
 	if err != nil {
 		log.Fatalf("Couldn't retrieve main filename: %s", err)
 	}
 
-	mainfile := path + tmp
+	mainfile := path + filename
 	js.Get("params").GetIndex(0).Set("file", mainfile)
 	js.Get("params").GetIndex(0).Set("name", id)
 	js.Get("params").GetIndex(0).Set("package", pkginfo)
@@ -129,9 +125,7 @@ func (d DriverBus) AnnounceDevice(id string, idType string, name string, sigs *s
 	}
 
 	receipt := d.mqtt.Publish(MQTT.QoS(1), "$device/"+guid+"/announce/", json)
-	// log.Printf("  message sent!")
 	<-receipt
-	// log.Printf("  message delivered!")
 
 	deviceBus := &DeviceBus{
 		id:         id,
@@ -154,7 +148,7 @@ type DeviceBus struct {
 
 type JsonMessageHandler func(string, *simplejson.Json)
 
-func (d DeviceBus) AnnounceChannel(name string, protocol string, methods string, events string, serviceCallback JsonMessageHandler) (*ChannelBus, error) {
+func (d DeviceBus) AnnounceChannel(name string, protocol string, methods []string, events []string, serviceCallback JsonMessageHandler) (*ChannelBus, error) {
 	deviceguid, _ := d.devicejson.Get("guid").String()
 	channelguid := GetGUID(name + protocol)
 	js, _ := simplejson.NewJson([]byte(`{
@@ -271,9 +265,17 @@ func GetGUID(in string) string {
 
 }
 
-func strArrayToJson(in string) *simplejson.Json {
-	str := []byte("[" + in + "]")
-	out, err := simplejson.NewJson(str)
+func strArrayToJson(in []string) *simplejson.Json {
+	str := "[ "
+	for i, item := range in {
+		if i < (len(in) - 1) { //commas between elements except for last item
+			str += "\"" + item + "\", "
+		} else {
+			str += "\"" + item + "\" ]"
+		}
+	}
+
+	out, err := simplejson.NewJson([]byte(str))
 	if err != nil {
 		log.Fatalf("Bad JSON in strArrayToJson %+v: %s", in, err)
 	}

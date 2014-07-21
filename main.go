@@ -116,8 +116,8 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 	deviceBus, _ := bus.AnnounceDevice(l.Id, "hue", l.Name, sigs)
 	light.Bus = deviceBus
 
-	methods := "\"turnOn\", \"turnOff\", \"set\"" //TODO: should be string array
-	events := "\"state\""
+	methods := []string{"turnOn", "turnOff", "set"}
+	events := []string{"state"}
 	onOffBus, _ := light.Bus.AnnounceChannel("on-off", "on-off", methods, events, func(method string, payload *simplejson.Json) {
 
 		switch method {
@@ -138,7 +138,7 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 	})
 	light.OnOffBus = onOffBus
 
-	methods = "\"set\""
+	methods = []string{"set"}
 	brightnessBus, _ := light.Bus.AnnounceChannel("brightness", "brightness", methods, events, func(method string, payload *simplejson.Json) {
 
 		switch method {
