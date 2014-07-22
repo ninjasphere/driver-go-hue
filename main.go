@@ -25,25 +25,24 @@ type Light struct {
 	Bridge        *hue.Bridge
 	User          *hue.User
 	LightState    *hue.LightState
-	Batch					*bool
+	Batch         bool
+	batchBus      *ninja.ChannelBus
 }
 
-
 //Returns json state as defined by Ninja light protocol
-func (l Light) GetJsonLightState() (*simplejson.Json) {
+func (l Light) GetJsonLightState() *simplejson.Json {
 	st := l.LightState
 	js := simplejson.New()
-	js.Set("on",st.On)
-	js.Set("bri",st.Brightness)
-	js.Set("sat",st.Saturation)
-	js.Set("hue",st.Hue)
-	js.Set("ct",st.ColorTemp)
+	js.Set("on", st.On)
+	js.Set("bri", st.Brightness)
+	js.Set("sat", st.Saturation)
+	js.Set("hue", st.Hue)
+	js.Set("ct", st.ColorTemp)
 	js.Set("transitionTime", st.TransitionTime)
 	js.Set("alert", st.Alert)
 	js.Set("xy", st.XY)
 	return js
 }
-
 
 func getBridge() *hue.Bridge {
 	nobridge := true
@@ -96,37 +95,13 @@ func getUser(bridge *hue.Bridge) *hue.User {
 	return user
 }
 
-func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*Light, error) { //TODO cut this down!
-
-	lightState := createLightState()
-	batch := false
-	light := &Light{
-		Id:         l.Id,
-		Name:       l.Name,
-		Bridge:     bridge,
-		User:       user,
-		LightState: lightState,
-		Batch:			&batch,
-	}
-
-	sigs, _ := simplejson.NewJson([]byte(`{
-			"ninja:manufacturer": "Phillips",
-			"ninja:productName": "Hue",
-			"manufacturer:productModelId": "",
-			"ninja:productType": "Light",
-			"ninja:thingType": "light"
-	}`))
-
-	la, _ := user.GetLightAttributes(l.Id)
-	sigs.Set("manufacturer:productModelId", la.ModelId)
-
-	deviceBus, _ := bus.AnnounceDevice(l.Id, "hue", l.Name, sigs)
-	light.Bus = deviceBus
-
+func getOnOffBus(light *Light) *ninja.ChannelBus {
 	methods := []string{"turnOn", "turnOff", "set"}
 	events := []string{"state"}
 	onOffBus, _ := light.Bus.AnnounceChannel("on-off", "on-off", methods, events, func(method string, payload *simplejson.Json) {
-
+		if light.Batch == true {
+			return
+		}
 		switch method {
 		case "turnOn":
 			log.Printf("Turning on!")
@@ -143,10 +118,17 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 			return
 		}
 	})
-	light.OnOffBus = onOffBus
 
-	methods = []string{"set"}
+	return onOffBus
+}
+
+func getBrightBus(light *Light) *ninja.ChannelBus {
+	methods := []string{"set"}
+	events := []string{"state"}
 	brightnessBus, _ := light.Bus.AnnounceChannel("brightness", "brightness", methods, events, func(method string, payload *simplejson.Json) {
+		if light.Batch == true {
+			return
+		}
 
 		switch method {
 		case "set":
@@ -155,14 +137,22 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 			light.setBrightness(brightness)
 		default:
 			log.Printf("Brightness got an unknown method %s", method)
+			return
 		}
 
 	})
-	light.brightnessBus = brightnessBus
 
+	return brightnessBus
+
+}
+
+func getColorBus(light *Light) *ninja.ChannelBus {
+	methods := []string{"set"}
+	events := []string{"state"}
 	colorBus, _ := light.Bus.AnnounceChannel("color", "color", methods, events, func(method string, payload *simplejson.Json) {
-		mode, _ := payload.Get("mode").String()
-		log.Printf("Unsupported mode %s", mode)
+		if light.Batch == true {
+			return
+		}
 		switch method {
 		case "set":
 			log.Printf("Setting color to %s!", payload)
@@ -171,9 +161,68 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 			log.Printf("Color got an unknown method %s", method)
 		}
 	})
-	light.colorBus = colorBus
+
+	return colorBus
+}
+
+func getBatchBus(light *Light) *ninja.ChannelBus {
+	methods := []string{"setBatch"}
+	events := []string{""}
+	batchBus, _ := light.Bus.AnnounceChannel("core.batching", "core.batching", methods, events, func(method string, payload *simplejson.Json) {
+		switch method {
+		case "setBatch":
+			log.Printf("Setting color to %s!", payload)
+			light.setBatchColor(payload)
+		default:
+			log.Printf("Color got an unknown method %s", method)
+			return
+		}
+	})
+
+	return batchBus
+}
+
+func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*Light, error) { //TODO cut this down!
+
+	lightState := createLightState()
+
+	light := &Light{
+		Id:         l.Id,
+		Name:       l.Name,
+		Bridge:     bridge,
+		User:       user,
+		LightState: lightState,
+		Batch:      false,
+	}
+
+	sigs, _ := simplejson.NewJson([]byte(`{
+			"ninja:manufacturer": "Phillips",
+			"ninja:productName": "Hue",
+			"manufacturer:productModelId": "",
+			"ninja:productType": "Light",
+			"ninja:thingType": "light"
+	}`))
+
+	la, _ := user.GetLightAttributes(l.Id)
+	sigs.Set("manufacturer:productModelId", la.ModelId)
+
+	deviceBus, _ := bus.AnnounceDevice(l.Id, "hue", l.Name, sigs)
+	light.Bus = deviceBus
+	light.OnOffBus = getOnOffBus(light)
+	light.brightnessBus = getBrightBus(light)
+	light.colorBus = getColorBus(light)
+	light.batchBus = getBatchBus(light)
 
 	return light, nil
+}
+
+func (l Light) StartBatch() {
+	l.Batch = true
+}
+
+func (l Light) EndBatch(state *simplejson.Json) {
+	l.Batch = false
+
 }
 
 func (l Light) turnOnOff(state bool) {
@@ -205,7 +254,6 @@ func (l Light) setColor(payload *simplejson.Json, mode string) {
 		l.LightState.Hue = &hue
 		l.LightState.Saturation = &saturation
 		l.LightState.On = &on
-		log.Printf("Color from setColor, fhue: %f, fsaturation: %f, hue: %d, saturation: %d", fhue, fsaturation, hue, saturation)
 	case "xy":
 		x, _ := payload.Get("x").Float64()
 		y, _ := payload.Get("y").Float64()
@@ -217,10 +265,31 @@ func (l Light) setColor(payload *simplejson.Json, mode string) {
 		l.LightState.ColorTemp = &utemp
 	default:
 		log.Printf("Bad color mode: %s", mode)
+		return
 	}
 	l.refreshLightState()
 	l.User.SetLightState(l.Id, l.LightState)
 	l.colorBus.SendEvent("state", l.GetJsonLightState())
+}
+
+func (l Light) setBatchColor(payload *simplejson.Json) { //TODO This will set each param individually. Better to build full state then send to bulb.
+	if onoff, err := payload.Get("on-off").Bool(); err == nil {
+		l.turnOnOff(onoff)
+	}
+
+	color := payload.Get("color")
+	if color != nil {
+		l.setColor(color, "hue")
+	}
+
+	if brightness, err := payload.Get("brightness").Float64(); err == nil {
+		l.setBrightness(brightness)
+	}
+}
+
+func (l Light) setTransition(transTime int) {
+	utranstime := uint16(transTime)
+	l.LightState.TransitionTime = &utranstime
 }
 
 func createLightState() *hue.LightState {
@@ -261,7 +330,7 @@ func check(e error) {
 	}
 }
 
-func (l Light) refreshLightState() {
+func (l Light) refreshLightState() { //TOOD fix
 	newstate, _ := l.User.GetLightAttributes(l.Id)
 	bulbstate := newstate.State
 	mybulbstate := l.LightState
@@ -287,7 +356,7 @@ func printState(s *hue.LightState) {
 
 func main() {
 
-	conn, err := ninja.Connect("10.0.1.171", 1883, "com.ninjablocks.hue") //TODO variable mqtt host and ID
+	conn, err := ninja.Connect("com.ninjablocks.hue") //TODO variable mqtt host and ID
 
 	bus, err := conn.AnnounceDriver("com.ninjablocks.hue", "driver-hue", getCurDir())
 	if err != nil {
@@ -319,7 +388,7 @@ func main() {
 
 }
 
-// func verifyState (sent *simpleJson) bool {
-	//if sent state == current state, return true
-	//else return false
+// func verifyState (sent *simpleJson) bool { TODO
+//if sent state == current state, return true
+//else return false
 // }

@@ -13,7 +13,9 @@ import (
 	"time"
 )
 
-func Connect(host string, port int, clientId string) (*NinjaConnection, error) {
+func Connect(clientId string) (*NinjaConnection, error) {
+
+	host, port := GetMQTTAddress()
 	mqttServer := fmt.Sprintf("tcp://%s:%d", host, port)
 	conn := NinjaConnection{}
 	opts := MQTT.NewClientOptions().SetBroker(mqttServer).SetClientId(clientId).SetCleanSession(true).SetTraceLevel(MQTT.Off)
@@ -151,6 +153,7 @@ type DeviceBus struct {
 
 type JsonMessageHandler func(string, *simplejson.Json)
 
+// $device/7f0fa623af/channel/d00f681ad1/core.batching/announce
 func (d DeviceBus) AnnounceChannel(name string, protocol string, methods []string, events []string, serviceCallback JsonMessageHandler) (*ChannelBus, error) {
 	deviceguid, _ := d.devicejson.Get("guid").String()
 	channelguid := GetGUID(name + protocol)
@@ -216,6 +219,8 @@ func (d DeviceBus) AnnounceChannel(name string, protocol string, methods []strin
 	return channelBus, nil
 }
 
+func (d DeviceBus) AnnounceBatching() {}
+
 func (cb ChannelBus) SendEvent(event string, payload *simplejson.Json) error {
 	json, err := payload.MarshalJSON()
 	if err != nil {
@@ -233,14 +238,6 @@ type ChannelBus struct {
 	protocol string
 	device   *DeviceBus
 	channel  <-chan MQTT.Receipt
-}
-
-func GetConnection() (*NinjaConnection, error) {
-	host := "localhost"
-	port := 1883
-	clientId := "mqttClientId"
-
-	return Connect(host, port, clientId)
 }
 
 func getDriverInfo(filename string) (res *simplejson.Json) {
@@ -295,4 +292,36 @@ func GetSerial() string {
 		log.Fatal(err)
 	}
 	return out.String()
+}
+
+func GetMQTTAddress() (host string, port int) {
+
+	cfg, err := GetConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mqtt := cfg.Get("mqtt")
+	if host, err = mqtt.Get("host").String(); err != nil {
+		log.Fatal(err)
+	}
+	if port, err = mqtt.Get("port").Int(); err != nil {
+		log.Fatal(err)
+	}
+
+	return host, port
+
+}
+
+func GetConfig() (*simplejson.Json, error) {
+	cmd := exec.Command("./sphere-config") //TODO: change to "sphere-config" once path has been added to image
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return simplejson.NewJson(out.Bytes())
+
 }
