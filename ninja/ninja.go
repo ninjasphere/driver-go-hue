@@ -246,7 +246,6 @@ func getDriverInfo(filename string) (res *simplejson.Json) {
 	js, err := simplejson.NewJson(dat)
 	check(err)
 	js.Del("scripts")
-	log.Printf("driver info: %s", res)
 	return js
 }
 

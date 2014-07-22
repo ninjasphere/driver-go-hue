@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
+	"github.com/davecgh/go-spew/spew"
 	"log"
 	"math"
 	"os"
@@ -108,6 +109,7 @@ func getOnOffBus(light *Light) *ninja.ChannelBus {
 			light.turnOnOff(true)
 		case "turnOff":
 			log.Printf("Turning off!")
+			light.refreshLightState()
 			light.turnOnOff(false)
 		case "set":
 			state, _ := payload.GetIndex(0).Bool()
@@ -167,12 +169,11 @@ func getColorBus(light *Light) *ninja.ChannelBus {
 
 func getBatchBus(light *Light) *ninja.ChannelBus {
 	methods := []string{"setBatch"}
-	events := []string{""}
+	events := []string{"state"}
 	batchBus, _ := light.Bus.AnnounceChannel("core.batching", "core.batching", methods, events, func(method string, payload *simplejson.Json) {
 		switch method {
 		case "setBatch":
-			log.Printf("Setting color to %s!", payload)
-			light.setBatchColor(payload)
+			light.setBatchColor(payload.GetIndex(0))
 		default:
 			log.Printf("Color got an unknown method %s", method)
 			return
@@ -220,16 +221,19 @@ func (l Light) StartBatch() {
 	l.Batch = true
 }
 
-func (l Light) EndBatch(state *simplejson.Json) {
+func (l Light) EndBatch() {
 	l.Batch = false
-
+	l.User.SetLightState(l.Id, l.LightState)
+	l.OnOffBus.SendEvent("state", l.GetJsonLightState())
+	spew.Dump(l.LightState)
 }
 
 func (l Light) turnOnOff(state bool) {
-	l.refreshLightState()
 	l.LightState.On = &state
-	l.User.SetLightState(l.Id, l.LightState)
-	l.OnOffBus.SendEvent("state", l.GetJsonLightState())
+	if !l.Batch {
+		l.User.SetLightState(l.Id, l.LightState)
+		l.OnOffBus.SendEvent("state", l.GetJsonLightState())
+	}
 }
 
 func (l Light) setBrightness(fbrightness float64) {
@@ -237,15 +241,19 @@ func (l Light) setBrightness(fbrightness float64) {
 	on := bool(true)
 	l.LightState.Brightness = &brightness
 	l.LightState.On = &on
-	l.refreshLightState()
-	l.User.SetLightState(l.Id, l.LightState)
-	l.brightnessBus.SendEvent("state", l.GetJsonLightState())
-
+	if !l.Batch {
+		l.User.SetLightState(l.Id, l.LightState)
+		l.brightnessBus.SendEvent("state", l.GetJsonLightState())
+	}
 }
 
 func (l Light) setColor(payload *simplejson.Json, mode string) {
+
 	switch mode {
-	case "hue": //less verbose plz
+	case "hue": //TODO less verbose plz
+		if trans, e := payload.Get("transition").Int(); e == nil {
+			l.setTransition(trans)
+		}
 		fhue, _ := payload.Get("hue").Float64()
 		hue := uint16(fhue * math.MaxUint16)
 		fsaturation, _ := payload.Get("saturation").Float64()
@@ -254,42 +262,74 @@ func (l Light) setColor(payload *simplejson.Json, mode string) {
 		l.LightState.Hue = &hue
 		l.LightState.Saturation = &saturation
 		l.LightState.On = &on
+		l.LightState.XY = nil
+		l.LightState.ColorTemp = nil
 	case "xy":
+		if trans, e := payload.Get("transition").Int(); e == nil {
+			l.setTransition(trans)
+		}
 		x, _ := payload.Get("x").Float64()
 		y, _ := payload.Get("y").Float64()
 		xy := []float64{x, y}
 		l.LightState.XY = xy
+		l.LightState.Hue = nil
+		l.LightState.Saturation = nil
+		l.LightState.ColorTemp = nil
 	case "temperature":
+		if trans, e := payload.Get("transition").Int(); e == nil {
+			l.setTransition(trans)
+		}
 		temp, _ := payload.Get("temperature").Float64()
 		utemp := uint16(math.Floor(1000000 / temp))
 		l.LightState.ColorTemp = &utemp
+		l.LightState.XY = nil
+		l.LightState.Hue = nil
+		l.LightState.Saturation = nil
 	default:
 		log.Printf("Bad color mode: %s", mode)
 		return
 	}
-	l.refreshLightState()
-	l.User.SetLightState(l.Id, l.LightState)
-	l.colorBus.SendEvent("state", l.GetJsonLightState())
-}
 
-func (l Light) setBatchColor(payload *simplejson.Json) { //TODO This will set each param individually. Better to build full state then send to bulb.
-	if onoff, err := payload.Get("on-off").Bool(); err == nil {
-		l.turnOnOff(onoff)
+	if !l.Batch {
+		l.User.SetLightState(l.Id, l.LightState)
+		l.colorBus.SendEvent("state", l.GetJsonLightState())
 	}
 
-	color := payload.Get("color")
-	if color != nil {
-		l.setColor(color, "hue")
-	}
-
-	if brightness, err := payload.Get("brightness").Float64(); err == nil {
-		l.setBrightness(brightness)
-	}
 }
 
 func (l Light) setTransition(transTime int) {
 	utranstime := uint16(transTime)
 	l.LightState.TransitionTime = &utranstime
+}
+
+func (l Light) setBatchColor(payload *simplejson.Json) { //TODO This will set each param individually. Better to build full state then send to bulb.
+	l.StartBatch()
+
+	color := payload.Get("color")
+	if color != nil {
+		l.setColor(color, "hue")
+		prettycolor, _ := color.EncodePretty()
+		log.Printf("Got color: %s", prettycolor)
+	}
+
+	if brightness, err := payload.Get("brightness").Float64(); err == nil {
+		log.Printf("Got brightness: %f", brightness)
+		l.setBrightness(brightness)
+	}
+
+	if onoff, err := payload.Get("on-off").Bool(); err == nil {
+		log.Printf("Got onoff: %t", onoff)
+		l.turnOnOff(onoff)
+	}
+
+	if transition, err := payload.Get("transition").Int(); err == nil {
+		log.Printf("Got transition: %d", transition)
+		l.setTransition(transition)
+	}
+
+	l.EndBatch()
+
+	printState(l.LightState)
 }
 
 func createLightState() *hue.LightState {
@@ -350,8 +390,7 @@ func (l Light) refreshLightState() { //TOOD fix
 }
 
 func printState(s *hue.LightState) {
-	log.Printf(" on:%t brightness: %d hue: %d sat: %d x,y: %f, %f colortemp: %d alert: %s effect: %s color mode: %s reachable: %t", *s.On, *s.Brightness, *s.Hue, *s.Saturation, s.XY[0], s.XY[1], *s.ColorTemp, s.Alert, s.Effect, s.ColorMode, s.Reachable)
-
+	spew.Dump(s)
 }
 
 func main() {
