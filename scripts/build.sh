@@ -21,7 +21,6 @@ if [ ! -d ".gopath" ]; then
 	ln -sf ../../../.. .gopath/src/github.com/${OWNER}/${PROJECT_NAME}
 fi
 
-
 export GOPATH="$(pwd)/.gopath"
 
 # move the working path and build
