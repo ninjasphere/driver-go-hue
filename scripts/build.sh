@@ -5,8 +5,6 @@ OWNER=ninjasphere
 BIN_NAME=driver-go-hue
 PROJECT_NAME=driver-go-hue
 
-ls ..
-ls
 
 # Get the parent directory of where this script is.
 SOURCE="${BASH_SOURCE[0]}"
