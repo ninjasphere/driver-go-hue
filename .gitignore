@@ -1,3 +1,3 @@
-bin/mqtt-bridgeify
 .gopath/*
 pkg/
+.AppleDouble

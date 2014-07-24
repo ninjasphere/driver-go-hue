@@ -11,6 +11,7 @@ import (
 	"log"
 	"os/exec"
 	"time"
+	"os"
 )
 
 func Connect(clientId string) (*NinjaConnection, error) {
@@ -283,7 +284,14 @@ func strArrayToJson(in []string) *simplejson.Json {
 }
 
 func GetSerial() string {
-	cmd := exec.Command("./sphere-serial") //TODO: change to "sphere-serial" once path has been added to image
+
+	var cmd *exec.Cmd
+
+	if(Exists("/opt/ninjablocks/bin/sphere-serial")) {
+		cmd = exec.Command("sphere-serial")
+	} else {
+		cmd = exec.Command("./sphere-serial")
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -313,7 +321,12 @@ func GetMQTTAddress() (host string, port int) {
 }
 
 func GetConfig() (*simplejson.Json, error) {
-	cmd := exec.Command("sphere-config") //TODO: change to "sphere-config" once path has been added to image
+	var cmd *exec.Cmd
+	if(Exists("/opt/ninjablocks/bin/sphere-config")) {
+		cmd = exec.Command("sphere-config")
+	} else {
+		cmd = exec.Command("./sphere-config")
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -323,4 +336,13 @@ func GetConfig() (*simplejson.Json, error) {
 
 	return simplejson.NewJson(out.Bytes())
 
+}
+
+func Exists(name string) bool {
+    if _, err := os.Stat(name); err != nil {
+    if os.IsNotExist(err) {
+                return false
+            }
+    }
+    return true
 }

@@ -6,7 +6,7 @@ dist:
 	scripts/dist.sh
 
 clean:
-	rm -f bin/mqtt-bridgeify || true
+	rm -f bin/* || true
 	rm -rf .gopath || true
 
 test:

@@ -1,13 +1,1 @@
-{
-  "name": "driver-hue",
-  "version": "0.0.1",
-  "description": "Ninja Sphere - Philips Hue Driver",
-  "main": "main.go",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "Nick Clark <nick@ninjablocks.com>",
-  "license": "MIT",
-  "topics": {},
-  "maxMemory": 10
-}
+ninjapack/root/opt/ninjablocks/driver/driver-go-hue/package.json
