@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-OWNER=ninjablocks
+OWNER=ninjasphere
 BIN_NAME=driver-go-hue
 PROJECT_NAME=driver-go-hue
 

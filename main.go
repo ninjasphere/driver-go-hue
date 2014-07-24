@@ -1,7 +1,7 @@
 package main
 
 import (
-	"./ninja"
+	"github.com/ninjasphere/driver-go-hue/ninja"
 	"fmt"
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
@@ -158,7 +158,12 @@ func getColorBus(light *Light) *ninja.ChannelBus {
 		switch method {
 		case "set":
 			log.Printf("Setting color to %s!", payload)
-			light.setColor(payload, method)
+			mode, err := payload.Get("mode").String()
+			if err != nil {
+				log.Printf("No mode sent to color bus: %s", err)
+				spew.Dump(payload)
+			}
+			light.setColor(payload, mode)
 		default:
 			log.Printf("Color got an unknown method %s", method)
 		}
@@ -298,6 +303,7 @@ func (l Light) setColor(payload *simplejson.Json, mode string) {
 }
 
 func (l Light) setTransition(transTime int) {
+	transTime = transTime / 10 //HUE API uses 1/10th of a second
 	utranstime := uint16(transTime)
 	l.LightState.TransitionTime = &utranstime
 }
@@ -395,7 +401,7 @@ func printState(s *hue.LightState) {
 
 func main() {
 
-	conn, err := ninja.Connect("com.ninjablocks.hue") //TODO variable mqtt host and ID
+	conn, err := ninja.Connect("com.ninjablocks.hue")
 
 	bus, err := conn.AnnounceDriver("com.ninjablocks.hue", "driver-hue", getCurDir())
 	if err != nil {

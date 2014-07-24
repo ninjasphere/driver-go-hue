@@ -313,7 +313,7 @@ func GetMQTTAddress() (host string, port int) {
 }
 
 func GetConfig() (*simplejson.Json, error) {
-	cmd := exec.Command("./sphere-config") //TODO: change to "sphere-config" once path has been added to image
+	cmd := exec.Command("sphere-config") //TODO: change to "sphere-config" once path has been added to image
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
