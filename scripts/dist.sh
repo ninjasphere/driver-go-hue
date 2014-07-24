@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PACKAGE_NAME=mqtt-bridgeify
+PACKAGE_NAME=driver-go-hue
 
 # Get the parent directory of where this script is.
 SOURCE="${BASH_SOURCE[0]}"
