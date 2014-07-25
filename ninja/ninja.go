@@ -288,7 +288,7 @@ func GetSerial() string {
 	var cmd *exec.Cmd
 
 	if(Exists("/opt/ninjablocks/bin/sphere-serial")) {
-		cmd = exec.Command("sphere-serial")
+		cmd = exec.Command("/opt/ninjablocks/bin/sphere-serial")
 	} else {
 		cmd = exec.Command("./sphere-serial")
 	}
@@ -323,7 +323,7 @@ func GetMQTTAddress() (host string, port int) {
 func GetConfig() (*simplejson.Json, error) {
 	var cmd *exec.Cmd
 	if(Exists("/opt/ninjablocks/bin/sphere-config")) {
-		cmd = exec.Command("sphere-config")
+		cmd = exec.Command("/opt/ninjablocks/bin/sphere-config")
 	} else {
 		cmd = exec.Command("./sphere-config")
 	}
