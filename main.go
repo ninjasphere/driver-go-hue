@@ -1,11 +1,12 @@
 package main
 
 import (
-	"github.com/ninjasphere/driver-go-hue/ninja"
 	"fmt"
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ninjasphere/driver-go-hue/bulbmonitor"
+	"github.com/ninjasphere/driver-go-hue/ninja"
 	"log"
 	"math"
 	"os"
@@ -28,6 +29,7 @@ type Light struct {
 	LightState    *hue.LightState
 	Batch         bool
 	batchBus      *ninja.ChannelBus
+	bulbMonitor   *bulbmonitor.BulbMonitor
 }
 
 //Returns json state as defined by Ninja light protocol
@@ -105,10 +107,8 @@ func getOnOffBus(light *Light) *ninja.ChannelBus {
 		}
 		switch method {
 		case "turnOn":
-			log.Printf("Turning on!")
 			light.turnOnOff(true)
 		case "turnOff":
-			log.Printf("Turning off!")
 			light.refreshLightState()
 			light.turnOnOff(false)
 		case "set":
@@ -234,14 +234,19 @@ func (l Light) EndBatch() {
 }
 
 func (l Light) turnOnOff(state bool) {
+	log.Printf("before refresh")
+	printState(l.LightState)
+	l.refreshLightState()
 	l.LightState.On = &state
 	if !l.Batch {
-		l.User.SetLightState(l.Id, l.LightState)
-		l.OnOffBus.SendEvent("state", l.GetJsonLightState())
+		log.Printf("after refresh and set state")
+		printState(l.LightState)
+		l.sendLightState()
 	}
 }
 
 func (l Light) setBrightness(fbrightness float64) {
+	l.refreshLightState()
 	brightness := uint8(fbrightness * math.MaxUint8)
 	on := bool(true)
 	l.LightState.Brightness = &brightness
@@ -253,7 +258,7 @@ func (l Light) setBrightness(fbrightness float64) {
 }
 
 func (l Light) setColor(payload *simplejson.Json, mode string) {
-
+	l.refreshLightState()
 	switch mode {
 	case "hue": //TODO less verbose plz
 		if trans, e := payload.Get("transition").Int(); e == nil {
@@ -334,8 +339,6 @@ func (l Light) setBatchColor(payload *simplejson.Json) { //TODO This will set ea
 	}
 
 	l.EndBatch()
-
-	printState(l.LightState)
 }
 
 func createLightState() *hue.LightState {
@@ -370,13 +373,20 @@ func getCurDir() string {
 }
 
 func check(e error) {
-	log.Printf("boom")
+
 	if e != nil {
+		log.Printf("boom")
 		panic(e)
 	}
 }
 
-func (l Light) refreshLightState() { //TOOD fix
+func (l Light) sendLightState() {
+
+	l.User.SetLightState(l.Id, l.LightState)
+	l.OnOffBus.SendEvent("state", l.GetJsonLightState())
+}
+
+func (l Light) refreshLightState() { //TOOD fix verboseness
 	newstate, _ := l.User.GetLightAttributes(l.Id)
 	bulbstate := newstate.State
 	mybulbstate := l.LightState

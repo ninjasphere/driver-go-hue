@@ -9,9 +9,9 @@ import (
 	"github.com/bitly/go-simplejson"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"time"
-	"os"
 )
 
 func Connect(clientId string) (*NinjaConnection, error) {
@@ -201,8 +201,6 @@ func (d DeviceBus) AnnounceChannel(name string, protocol string, methods []strin
 		json, _ := simplejson.NewJson(message.Payload())
 		method, _ := json.Get("method").String()
 		params := json.Get("params")
-
-		log.Printf("incoming message! %s", params)
 		serviceCallback(method, params)
 
 	}, filter)
@@ -287,8 +285,8 @@ func GetSerial() string {
 
 	var cmd *exec.Cmd
 
-	if(Exists("/opt/ninjablocks/bin/sphere-serial")) {
-		cmd = exec.Command("sphere-serial")
+	if Exists("/opt/ninjablocks/bin/sphere-serial") {
+		cmd = exec.Command("/opt/ninjablocks/bin/sphere-serial")
 	} else {
 		cmd = exec.Command("./sphere-serial")
 	}
@@ -322,8 +320,8 @@ func GetMQTTAddress() (host string, port int) {
 
 func GetConfig() (*simplejson.Json, error) {
 	var cmd *exec.Cmd
-	if(Exists("/opt/ninjablocks/bin/sphere-config")) {
-		cmd = exec.Command("sphere-config")
+	if Exists("/opt/ninjablocks/bin/sphere-config") {
+		cmd = exec.Command("/opt/ninjablocks/bin/sphere-config")
 	} else {
 		cmd = exec.Command("./sphere-config")
 	}
@@ -339,10 +337,10 @@ func GetConfig() (*simplejson.Json, error) {
 }
 
 func Exists(name string) bool {
-    if _, err := os.Stat(name); err != nil {
-    if os.IsNotExist(err) {
-                return false
-            }
-    }
-    return true
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
