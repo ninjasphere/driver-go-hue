@@ -1,8 +1,7 @@
 package main
 
 import (
-	// "github.com/ninjasphere/driver-go-hue/ninja"
-	"./ninja"
+	"github.com/ninjasphere/driver-go-hue/ninja"
 	"fmt"
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
