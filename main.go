@@ -5,7 +5,7 @@ import (
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/ninjasphere/driver-go-hue/bulbmonitor"
+	//"github.com/ninjasphere/driver-go-hue/bulbmonitor"
 	"github.com/ninjasphere/go-ninja"
 	"log"
 	"math"
@@ -29,7 +29,7 @@ type Light struct {
 	LightState    *hue.LightState
 	Batch         bool
 	batchBus      *ninja.ChannelBus
-	bulbMonitor   *bulbmonitor.BulbMonitor
+	//bulbMonitor   *bulbmonitor.BulbMonitor
 }
 
 //Returns json state as defined by Ninja light protocol
