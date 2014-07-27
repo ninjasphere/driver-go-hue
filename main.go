@@ -6,7 +6,7 @@ import (
 	"github.com/bitly/go-simplejson"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ninjasphere/driver-go-hue/bulbmonitor"
-	"github.com/ninjasphere/driver-go-hue/ninja"
+	"github.com/ninjasphere/go-ninja"
 	"log"
 	"math"
 	"os"
