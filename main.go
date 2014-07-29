@@ -2,17 +2,18 @@ package main
 
 import (
 	"fmt"
-	"github.com/bcurren/go-hue"
-	"github.com/bitly/go-simplejson"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/ninjasphere/driver-go-hue/bulbmonitor"
-	"github.com/ninjasphere/driver-go-hue/ninja"
 	"log"
 	"math"
 	"os"
 	"os/signal"
 	"strings"
 	"time"
+
+	"github.com/bcurren/go-hue"
+	"github.com/bitly/go-simplejson"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/ninjasphere/driver-go-hue/bulbmonitor"
+	"github.com/ninjasphere/go-ninja"
 )
 
 var _ = fmt.Printf
@@ -68,8 +69,11 @@ func getUser(bridge *hue.Bridge) *hue.User {
 	var err error
 	noUser := true
 	retries := 0
-	username := ninja.GetSerial() + ninja.GetSerial() //username must be long 10-40 characters
-
+	serial, err := ninja.GetSerial()
+	if err != nil {
+		log.Fatalf("Problem determining if hue user is valid: %s", err)
+	}
+	username := serial + serial //username must be long 10-40 characters
 	isvaliduser, err := bridge.IsValidUser(username)
 	if err != nil {
 		log.Printf("Problem determining if hue user is valid")
@@ -367,17 +371,8 @@ func createLightState() *hue.LightState {
 }
 
 func getCurDir() string {
-	pwd, err := os.Getwd()
-	check(err)
+	pwd, _ := os.Getwd()
 	return pwd + "/"
-}
-
-func check(e error) {
-
-	if e != nil {
-		log.Printf("boom")
-		panic(e)
-	}
 }
 
 func (l Light) sendLightState() {

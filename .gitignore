@@ -1,3 +1,5 @@
+main
+driver-go-hue
 .gopath/*
 pkg/
 .AppleDouble
