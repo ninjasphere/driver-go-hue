@@ -3,3 +3,4 @@ driver-go-hue
 .gopath/*
 pkg/
 .AppleDouble
+bin/driver-go-hue
