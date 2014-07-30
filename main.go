@@ -1,13 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"os"
 	"os/signal"
 	"strings"
 	"time"
-	"fmt"
+
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
 	"github.com/davecgh/go-spew/spew"
@@ -406,6 +407,9 @@ func printState(s *hue.LightState) {
 func main() {
 
 	conn, err := ninja.Connect("com.ninjablocks.hue")
+	if err != nil {
+		log.Fatalf("Could not connect to MQTT: %s", err)
+	}
 
 	bus, err := conn.AnnounceDriver("com.ninjablocks.hue", "driver-hue", getCurDir())
 	if err != nil {
