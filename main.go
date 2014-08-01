@@ -238,14 +238,12 @@ func (l Light) EndBatch() {
 }
 
 func (l Light) turnOnOff(state bool) {
-	log.Printf("before refresh")
-	printState(l.LightState)
-	l.refreshLightState()
-	l.LightState.On = &state
 	if !l.Batch {
-		log.Printf("after refresh and set state")
-		printState(l.LightState)
-		l.sendLightState()
+		lightState := &hue.LightState{
+			On: &state,
+		}
+		l.User.SetLightState(l.Id, lightState)
+
 	}
 }
 
