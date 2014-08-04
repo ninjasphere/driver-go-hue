@@ -319,12 +319,15 @@ func (l Light) setBatchColor(payload *simplejson.Json) { //TODO This will set ea
 	l.StartBatch()
 
 	color := payload.Get("color")
-	if color != nil {
-		l.setColor(color, "hue")
-		prettycolor, _ := color.EncodePretty()
-		log.Printf("Got color: %s", prettycolor)
+	
+	if mode, err := payload.Get("mode").String(); err == nil {
+		if color != nil {
+			log.Printf("Got color mode: %s", mode)
+			log.Printf("Got color: %s", color)
+			l.setColor(color, mode)
+		}
 	}
-
+	
 	if brightness, err := payload.Get("brightness").Float64(); err == nil {
 		log.Printf("Got brightness: %f", brightness)
 		l.setBrightness(brightness)
