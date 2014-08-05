@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -xe
 
 OWNER=ninjasphere
 BIN_NAME=driver-go-hue
