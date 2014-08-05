@@ -268,6 +268,7 @@ func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 			XY: xy,
 		}
 	case "temperature":
+		log.Printf("got temp")
 		temp, err := colorpayload.Get("temperature").Float64()
 		if err != nil {
 			log.Printf("No temperature sent to color bus: %s", err)
