@@ -286,14 +286,17 @@ func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 	if trans, e := payload.Get("transition").Int(); e == nil {
 		st := l.setTransition(trans)
 		lightState.TransitionTime = st.TransitionTime
+		log.Printf("Got transition time %d, setting to %d", trans, *st.TransitionTime)
 	}
+	log.Printf("full state")
+	spew.Dump(lightState)
 
 	return lightState
 
 }
 
 func (l Light) setTransition(transTime int) *hue.LightState {
-	transTime = transTime / 10 //HUE API uses 1/10th of a second
+	transTime = transTime / 100 //HUE API uses 1/10th of a second
 	utranstime := uint16(transTime)
 	newstate := &hue.LightState{
 		TransitionTime: &utranstime,
