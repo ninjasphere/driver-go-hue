@@ -12,7 +12,6 @@ import (
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
 	"github.com/davecgh/go-spew/spew"
-	// "github.com/ninjasphere/driver-go-hue/bulbmonitor"
 	"github.com/ninjasphere/go-ninja"
 )
 
@@ -33,20 +32,7 @@ type Light struct {
 	//bulbMonitor   *bulbmonitor.BulbMonitor
 }
 
-//Returns json state as defined by Ninja light protocol
-func (l Light) GetJsonLightState() *simplejson.Json {
-	st := l.LightState
-	js := simplejson.New()
-	js.Set("on", st.On)
-	js.Set("bri", st.Brightness)
-	js.Set("sat", st.Saturation)
-	js.Set("hue", st.Hue)
-	js.Set("ct", st.ColorTemp)
-	js.Set("transitionTime", st.TransitionTime)
-	js.Set("alert", st.Alert)
-	js.Set("xy", st.XY)
-	return js
-}
+//--------------------------------------------------[HUE BASESTATION]----------------------------------------------------------------------
 
 func getBridge() *hue.Bridge {
 	nobridge := true
@@ -102,6 +88,8 @@ func getUser(bridge *hue.Bridge) *hue.User {
 	return user
 }
 
+//--------------------------------------------------[BUSES]----------------------------------------------------------------------
+
 func getOnOffBus(light *Light) *ninja.ChannelBus {
 	methods := []string{"turnOn", "turnOff", "set"}
 	events := []string{"state"}
@@ -111,14 +99,12 @@ func getOnOffBus(light *Light) *ninja.ChannelBus {
 		}
 		switch method {
 		case "turnOn":
-			light.turnOnOff(true)
+			light.sendLightState(light.turnOnOff(true))
 		case "turnOff":
-			light.refreshLightState()
-			light.turnOnOff(false)
+			light.sendLightState(light.turnOnOff(false))
 		case "set":
 			state, _ := payload.GetIndex(0).Bool()
-			log.Printf("Setting to %t!", state)
-			light.turnOnOff(state)
+			light.sendLightState(light.turnOnOff(state))
 		default:
 			log.Printf("On-off got an unknown method %s", method)
 			return
@@ -140,7 +126,7 @@ func getBrightBus(light *Light) *ninja.ChannelBus {
 		case "set":
 			brightness, _ := payload.GetIndex(0).Float64()
 			log.Printf("Setting brightness to %f!", brightness)
-			light.setBrightness(brightness)
+			light.sendLightState(light.setBrightness(brightness))
 		default:
 			log.Printf("Brightness got an unknown method %s", method)
 			return
@@ -162,12 +148,7 @@ func getColorBus(light *Light) *ninja.ChannelBus {
 		switch method {
 		case "set":
 			log.Printf("Setting color to %s!", payload)
-			mode, err := payload.Get("mode").String()
-			if err != nil {
-				log.Printf("No mode sent to color bus: %s", err)
-				spew.Dump(payload)
-			}
-			light.setColor(payload, mode)
+			light.sendLightState(light.setColor(payload))
 		default:
 			log.Printf("Color got an unknown method %s", method)
 		}
@@ -226,121 +207,104 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 	return light, nil
 }
 
-func (l Light) StartBatch() {
-	l.Batch = true
-}
-
-func (l Light) EndBatch() {
-	l.Batch = false
-	l.User.SetLightState(l.Id, l.LightState)
-	l.OnOffBus.SendEvent("state", l.GetJsonLightState())
-	spew.Dump(l.LightState)
-}
-
-func (l Light) turnOnOff(state bool) {
-	if !l.Batch {
-		lightState := &hue.LightState{
-			On: &state,
-		}
-		l.User.SetLightState(l.Id, lightState)
-
+func (l Light) turnOnOff(state bool) *hue.LightState {
+	lightState := &hue.LightState{
+		On: &state,
 	}
+	return lightState
+
 }
 
-func (l Light) setBrightness(fbrightness float64) {
-	l.refreshLightState()
+func (l Light) setBrightness(fbrightness float64) *hue.LightState {
 	brightness := uint8(fbrightness * math.MaxUint8)
-	on := bool(true)
-	l.LightState.Brightness = &brightness
-	l.LightState.On = &on
-	if !l.Batch {
-		l.User.SetLightState(l.Id, l.LightState)
-		l.brightnessBus.SendEvent("state", l.GetJsonLightState())
+	lightState := &hue.LightState{
+		Brightness: &brightness,
 	}
+	return lightState
 }
 
-func (l Light) setColor(payload *simplejson.Json, mode string) {
-	l.refreshLightState()
+func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
+
+	var lightState *hue.LightState
+
+	mode, err := payload.Get("color").Get("mode").String()
+	if err != nil {
+		log.Printf("No mode sent to color bus: %s", err)
+		spew.Dump(payload)
+	}
+
 	switch mode {
 	case "hue": //TODO less verbose plz
-		if trans, e := payload.Get("transition").Int(); e == nil {
-			l.setTransition(trans)
-		}
 		fhue, _ := payload.Get("hue").Float64()
-		hue := uint16(fhue * math.MaxUint16)
+		uint16hue := uint16(fhue * math.MaxUint16)
 		fsaturation, _ := payload.Get("saturation").Float64()
 		saturation := uint8(fsaturation * math.MaxUint8)
-		on := bool(true)
-		l.LightState.Hue = &hue
-		l.LightState.Saturation = &saturation
-		l.LightState.On = &on
-		l.LightState.XY = nil
-		l.LightState.ColorTemp = nil
-	case "xy":
-		if trans, e := payload.Get("transition").Int(); e == nil {
-			l.setTransition(trans)
+		lightState = &hue.LightState{
+			Hue:        &uint16hue,
+			Saturation: &saturation,
 		}
+
+	case "xy":
 		x, _ := payload.Get("x").Float64()
 		y, _ := payload.Get("y").Float64()
 		xy := []float64{x, y}
-		l.LightState.XY = xy
-		l.LightState.Hue = nil
-		l.LightState.Saturation = nil
-		l.LightState.ColorTemp = nil
-	case "temperature":
-		if trans, e := payload.Get("transition").Int(); e == nil {
-			l.setTransition(trans)
+		lightState = &hue.LightState{
+			XY: xy,
 		}
+	case "temperature":
 		temp, _ := payload.Get("temperature").Float64()
 		utemp := uint16(math.Floor(1000000 / temp))
-		l.LightState.ColorTemp = &utemp
-		l.LightState.XY = nil
-		l.LightState.Hue = nil
-		l.LightState.Saturation = nil
+		lightState = &hue.LightState{
+			ColorTemp: &utemp,
+		}
 	default:
 		log.Printf("Bad color mode: %s", mode)
-		return
+		return nil
 	}
 
-	if !l.Batch {
-		l.User.SetLightState(l.Id, l.LightState)
-		l.colorBus.SendEvent("state", l.GetJsonLightState())
+	if trans, e := payload.Get("transition").Int(); e == nil {
+		st := l.setTransition(trans)
+		lightState.TransitionTime = st.TransitionTime
 	}
+
+	return lightState
 
 }
 
-func (l Light) setTransition(transTime int) {
+func (l Light) setTransition(transTime int) *hue.LightState {
 	transTime = transTime / 10 //HUE API uses 1/10th of a second
 	utranstime := uint16(transTime)
-	l.LightState.TransitionTime = &utranstime
+	newstate := &hue.LightState{
+		TransitionTime: &utranstime,
+	}
+	return newstate
 }
 
-func (l Light) setBatchColor(payload *simplejson.Json) { //TODO This will set each param individually. Better to build full state then send to bulb.
-	l.StartBatch()
+func (l Light) setBatchColor(payload *simplejson.Json) {
+	var newlightstate *hue.LightState
 
 	color := payload.Get("color")
 	if color != nil {
-		l.setColor(color, "hue")
-		prettycolor, _ := color.EncodePretty()
-		log.Printf("Got color: %s", prettycolor)
+		newlightstate = l.setColor(payload)
 	}
 
 	if brightness, err := payload.Get("brightness").Float64(); err == nil {
-		log.Printf("Got brightness: %f", brightness)
-		l.setBrightness(brightness)
+		bri := l.setBrightness(brightness)
+		newlightstate.Brightness = bri.Brightness
 	}
 
 	if onoff, err := payload.Get("on-off").Bool(); err == nil {
-		log.Printf("Got onoff: %t", onoff)
-		l.turnOnOff(onoff)
+		st := l.turnOnOff(onoff)
+		newlightstate.On = st.On
 	}
 
 	if transition, err := payload.Get("transition").Int(); err == nil {
-		log.Printf("Got transition: %d", transition)
-		l.setTransition(transition)
+		trans := l.setTransition(transition)
+		newlightstate.TransitionTime = trans.TransitionTime
 	}
 
-	l.EndBatch()
+	l.sendLightState(newlightstate)
+
 }
 
 func createLightState() *hue.LightState {
@@ -373,9 +337,8 @@ func getCurDir() string {
 	return pwd + "/"
 }
 
-func (l Light) sendLightState() {
-
-	l.User.SetLightState(l.Id, l.LightState)
+func (l Light) sendLightState(newstate *hue.LightState) {
+	l.User.SetLightState(l.Id, newstate)
 	l.OnOffBus.SendEvent("state", l.GetJsonLightState())
 }
 
@@ -396,6 +359,21 @@ func (l Light) refreshLightState() { //TOOD fix verboseness
 	mybulbstate.Effect = bulbstate.Effect
 	mybulbstate.TransitionTime = &transtime
 
+}
+
+//Returns json state as defined by Ninja light protocol
+func (l Light) GetJsonLightState() *simplejson.Json {
+	st := l.LightState
+	js := simplejson.New()
+	js.Set("on", st.On)
+	js.Set("bri", st.Brightness)
+	js.Set("sat", st.Saturation)
+	js.Set("hue", st.Hue)
+	js.Set("ct", st.ColorTemp)
+	js.Set("transitionTime", st.TransitionTime)
+	js.Set("alert", st.Alert)
+	js.Set("xy", st.XY)
+	return js
 }
 
 func printState(s *hue.LightState) {
