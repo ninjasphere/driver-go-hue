@@ -226,8 +226,8 @@ func (l Light) setBrightness(fbrightness float64) *hue.LightState {
 func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 
 	var lightState *hue.LightState
-
-	mode, err := payload.Get("color").Get("mode").String()
+	colorpayload := payload.Get("color")
+	mode, err := colorpayload.Get("mode").String()
 	if err != nil {
 		log.Printf("No mode sent to color bus: %s", err)
 		spew.Dump(payload)
@@ -235,9 +235,17 @@ func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 
 	switch mode {
 	case "hue": //TODO less verbose plz
-		fhue, _ := payload.Get("hue").Float64()
+		fhue, err := colorpayload.Get("hue").Float64()
+		if err != nil {
+			log.Printf("No hue sent to color bus: %s", err)
+			spew.Dump(payload)
+		}
 		uint16hue := uint16(fhue * math.MaxUint16)
-		fsaturation, _ := payload.Get("saturation").Float64()
+		fsaturation, err := colorpayload.Get("saturation").Float64()
+		if err != nil {
+			log.Printf("No saturation sent to color bus: %s", err)
+			spew.Dump(payload)
+		}
 		saturation := uint8(fsaturation * math.MaxUint8)
 		lightState = &hue.LightState{
 			Hue:        &uint16hue,
@@ -245,18 +253,31 @@ func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 		}
 
 	case "xy":
-		x, _ := payload.Get("x").Float64()
-		y, _ := payload.Get("y").Float64()
+		x, err := colorpayload.Get("x").Float64()
+		if err != nil {
+			log.Printf("X coord not sent to color bus: %s", err)
+			spew.Dump(payload)
+		}
+		y, err := colorpayload.Get("y").Float64()
+		if err != nil {
+			log.Printf("Y coord not sent to color bus: %s", err)
+			spew.Dump(payload)
+		}
 		xy := []float64{x, y}
 		lightState = &hue.LightState{
 			XY: xy,
 		}
 	case "temperature":
-		temp, _ := payload.Get("temperature").Float64()
+		temp, err := colorpayload.Get("temperature").Float64()
+		if err != nil {
+			log.Printf("No temperature sent to color bus: %s", err)
+			spew.Dump(payload)
+		}
 		utemp := uint16(math.Floor(1000000 / temp))
 		lightState = &hue.LightState{
 			ColorTemp: &utemp,
 		}
+
 	default:
 		log.Printf("Bad color mode: %s", mode)
 		return nil
