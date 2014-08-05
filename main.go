@@ -288,8 +288,6 @@ func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 		lightState.TransitionTime = st.TransitionTime
 		log.Printf("Got transition time %d, setting to %d", trans, *st.TransitionTime)
 	}
-	log.Printf("full state")
-	spew.Dump(lightState)
 
 	return lightState
 
