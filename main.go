@@ -40,7 +40,6 @@ func getBridge() *hue.Bridge {
 	for nobridge {
 		allbridges, _ = hue.FindBridges()
 		if len(allbridges) == 0 {
-			log.Printf("Couldn't find bridge, retrying")
 			time.Sleep(time.Second * 2) //this sucks
 		} else {
 			nobridge = false
@@ -268,7 +267,6 @@ func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 			XY: xy,
 		}
 	case "temperature":
-		log.Printf("got temp")
 		temp, err := colorpayload.Get("temperature").Float64()
 		if err != nil {
 			log.Printf("No temperature sent to color bus: %s", err)
@@ -287,7 +285,6 @@ func (l Light) setColor(payload *simplejson.Json) *hue.LightState {
 	if trans, e := payload.Get("transition").Int(); e == nil {
 		st := l.setTransition(trans)
 		lightState.TransitionTime = st.TransitionTime
-		log.Printf("Got transition time %d, setting to %d", trans, *st.TransitionTime)
 	}
 
 	return lightState
