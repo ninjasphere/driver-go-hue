@@ -17,6 +17,8 @@ import (
 
 var _ = fmt.Printf
 
+const driverName = "driver-hue"
+
 type Light struct {
 	Id            string
 	Name          string
@@ -402,15 +404,25 @@ func printState(s *hue.LightState) {
 
 func main() {
 
+	log.Printf("Starting " + driverName)
+
 	conn, err := ninja.Connect("com.ninjablocks.hue")
 	if err != nil {
 		log.Fatalf("Could not connect to MQTT: %s", err)
 	}
 
-	bus, err := conn.AnnounceDriver("com.ninjablocks.hue", "driver-hue", getCurDir())
+	bus, err := conn.AnnounceDriver("com.ninjablocks.hue", driverName, getCurDir())
 	if err != nil {
 		log.Fatalf("Could not get driver bus: %s", err)
 	}
+
+	statusJob, err := ninja.CreateStatusJob(conn, driverName)
+
+	if err != nil {
+		log.Fatalf("Could not setup status job: %s", err)
+	}
+
+	statusJob.Start()
 
 	bridge := getBridge()
 	user := getUser(bridge)
