@@ -6,14 +6,15 @@ import (
 
 	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/ninjasphere/go-ninja"
 	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/devices"
 )
 
-func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*devices.LightDevice, error) {
+func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*HueLightContext, error) {
 
-	log.Infof("Making hue light with Bridge: %s Id: %s", bridge.UniqueId, l.Id)
+	log.Infof("Making hue light with Bridge: %s Id: %+v", bridge.UniqueId, l.Id)
 
 	sigs, _ := simplejson.NewJson([]byte(`{
 			"ninja:manufacturer": "Phillips",
@@ -67,7 +68,7 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 	light.ApplyOnOff = hl.ApplyOnOff
 	light.ApplyLightState = hl.ApplyLightState
 
-	return light, nil
+	return hl, nil
 }
 
 type HueLightContext struct {
@@ -80,15 +81,17 @@ type HueLightContext struct {
 }
 
 func (hl *HueLightContext) ApplyOnOff(state bool) error {
-	lightState := &hue.LightState{
-		On: &state,
-	}
-	return hl.SetLightState(hl.ID, lightState)
+
+	ls := createLightState()
+
+	ls.On = &state
+
+	return hl.SetLightState(hl.ID, ls)
 }
 
 func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) error {
 
-	log.Debugf("Sending light state to hue bulb: %+v", state)
+	log.Infof("Sending light state to hue bulb: %+v", state)
 
 	if state.OnOff != nil {
 		err := hl.ApplyOnOff(*state.OnOff)
@@ -112,22 +115,32 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 		switch state.Color.Mode {
 		case "hue":
-			return hl.SetLightState(hl.ID, &hue.LightState{
-				Hue:            getHue(state),
-				Saturation:     getSaturation(state),
-				Brightness:     getBrightness(state),
-				TransitionTime: getTransitionTime(state),
-			})
+			ls := createLightState()
+
+			ls.Hue = getHue(state)
+			ls.Saturation = getSaturation(state)
+			ls.Brightness = getBrightness(state)
+			ls.TransitionTime = getTransitionTime(state)
+
+			return hl.SetLightState(hl.ID, ls)
 		case "xy":
-			return hl.SetLightState(hl.ID, &hue.LightState{
-				XY:             []float64{*state.Color.X, *state.Color.Y},
-				TransitionTime: getTransitionTime(state),
-			})
+
+			ls := createLightState()
+
+			ls.Hue = getHue(state)
+			ls.Saturation = getSaturation(state)
+			ls.Brightness = getBrightness(state)
+			ls.XY = []float64{*state.Color.X, *state.Color.Y}
+			ls.TransitionTime = getTransitionTime(state)
+
+			return hl.SetLightState(hl.ID, ls)
 		case "temperature":
-			return hl.SetLightState(hl.ID, &hue.LightState{
-				ColorTemp:      getColorTemp(state),
-				TransitionTime: getTransitionTime(state),
-			})
+
+			ls := createLightState()
+			ls.ColorTemp = getColorTemp(state)
+			ls.TransitionTime = getTransitionTime(state)
+
+			return hl.SetLightState(hl.ID, ls)
 		default:
 			return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
 		}
@@ -139,13 +152,15 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 func (hl *HueLightContext) SetLightState(lightID string, lightState *hue.LightState) error {
 
+	log.Infof(spew.Sprintf("Sending light state to hue bulb: %s %+v", lightID, lightState))
+
 	if err := hl.User.SetLightState(hl.ID, lightState); err != nil {
 		return err
 	}
 
-	la, _ := hl.User.GetLightAttributes(hl.ID)
+	//la, _ := hl.User.GetLightAttributes(hl.ID)
 
-	hl.Light.SetLightState(hueToNinjaLightState(la.State))
+	//hl.Light.SetLightState(hueToNinjaLightState(la.State))
 
 	return nil
 
@@ -179,6 +194,31 @@ func getBrightness(state *devices.LightDeviceState) *uint8 {
 func getColorTemp(state *devices.LightDeviceState) *uint16 {
 	temp := uint16(*state.Color.Temperature)
 	return &temp
+}
+
+func createLightState() *hue.LightState {
+
+	on := bool(false)
+	brightness := uint8(0)
+	saturation := uint8(0)
+	hueVal := uint16(0)
+	transitionTime := uint16(0)
+	alert := ""
+	temp := uint16(0)
+	xy := []float64{0, 0}
+
+	lightState := &hue.LightState{
+		On:             &on,
+		Brightness:     &brightness,
+		Saturation:     &saturation,
+		Hue:            &hueVal,
+		ColorTemp:      &temp,
+		TransitionTime: &transitionTime,
+		Alert:          alert,
+		XY:             xy,
+	}
+
+	return lightState
 }
 
 func hueToNinjaLightState(huestate *hue.LightState) *devices.LightDeviceState {
