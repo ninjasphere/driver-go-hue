@@ -91,7 +91,7 @@ func (hl *HueLightContext) ApplyOnOff(state bool) error {
 
 func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) error {
 
-	log.Infof("Sending light state to hue bulb: %+v", state)
+	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %+v", state))
 
 	if state.OnOff != nil {
 		err := hl.ApplyOnOff(*state.OnOff)
@@ -152,7 +152,7 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 func (hl *HueLightContext) SetLightState(lightID string, lightState *hue.LightState) error {
 
-	log.Infof(spew.Sprintf("Sending light state to hue bulb: %s %+v", lightID, lightState))
+	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %s %+v", lightID, lightState))
 
 	if err := hl.User.SetLightState(hl.ID, lightState); err != nil {
 		return err
