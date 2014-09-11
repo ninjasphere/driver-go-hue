@@ -88,7 +88,16 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 	ls := createLightState()
 
-	ls.On = state.OnOff
+	// Hue doesn't like you setting anything if you're off
+	if state.OnOff == nil || !*state.OnOff {
+		ls := createLightState()
+		on := false
+		ls.On = &on
+		return hl.SetLightState(ls)
+	}
+
+	ls.On = &*state.OnOff
+	ls.Brightness = getBrightness(state)
 
 	if state.Transition != nil {
 		ls.TransitionTime = getTransitionTime(state)
@@ -117,13 +126,9 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 	case "hue":
 		ls.Hue = getHue(state)
 		ls.Saturation = getSaturation(state)
-		ls.Brightness = getBrightness(state)
 
 	case "xy":
 
-		ls.Hue = getHue(state)
-		ls.Saturation = getSaturation(state)
-		ls.Brightness = getBrightness(state)
 		ls.XY = []float64{*state.Color.X, *state.Color.Y}
 
 	case "temperature":
@@ -219,26 +224,5 @@ func getColorTemp(state *devices.LightDeviceState) *uint16 {
 }
 
 func createLightState() *hue.LightState {
-
-	on := bool(false)
-	brightness := uint8(0)
-	saturation := uint8(0)
-	hueVal := uint16(0)
-	transitionTime := uint16(0)
-	alert := ""
-	temp := uint16(0)
-	xy := []float64{0, 0}
-
-	lightState := &hue.LightState{
-		On:             &on,
-		Brightness:     &brightness,
-		Saturation:     &saturation,
-		Hue:            &hueVal,
-		ColorTemp:      &temp,
-		TransitionTime: &transitionTime,
-		Alert:          alert,
-		XY:             xy,
-	}
-
-	return lightState
+	return &hue.LightState{}
 }
