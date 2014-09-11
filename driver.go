@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/bcurren/go-hue"
 	"github.com/bitly/go-simplejson"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ninjasphere/go-hue"
 	"github.com/ninjasphere/go-ninja"
 	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/devices"

@@ -4,20 +4,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bcurren/go-hue"
+	"github.com/ninjasphere/go-hue"
 	"github.com/ninjasphere/go-ninja"
 )
 
 func getBridge() *hue.Bridge {
 	nobridge := true
 	var allbridges []*hue.Bridge
+	var err error
 	for nobridge {
-		allbridges, _ = hue.FindBridges()
+		allbridges, err = hue.FindBridgesUsingCloud()
+		if err != nil {
+			//log.Infof("Warning: Failed finding bridges using cloud (%s). Falling back to ssdp.", err)
+			allbridges, _ = hue.FindBridges()
+		}
 		if len(allbridges) == 0 {
-			time.Sleep(time.Second * 2) //this sucks
+			time.Sleep(time.Second * 5) //this sucks
 		} else {
 			nobridge = false
-			log.Infof("got %d bridges: %s", len(allbridges), allbridges)
+			log.Infof("Found %d bridges: %s", len(allbridges), allbridges)
 		}
 	}
 	return allbridges[0]
