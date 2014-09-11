@@ -12,6 +12,8 @@ import (
 	"github.com/ninjasphere/go-ninja/devices"
 )
 
+var defaultTransitionTime uint16 = 7 // 1/10ths of a second
+
 func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*HueLightContext, error) {
 
 	log.Infof("Making hue light with Bridge: %s Id: %+v", bridge.UniqueId, l.Id)
@@ -65,39 +67,35 @@ func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.
 		LightState: &hue.LightState{},
 	}
 
-	light.ApplyOnOff = hl.ApplyOnOff
 	light.ApplyLightState = hl.ApplyLightState
 
-	return hl, nil
+	return hl, hl.UpdateState(l.Id)
 }
 
 type HueLightContext struct {
-	ID         string
-	Name       string
-	Bridge     *hue.Bridge
-	User       *hue.User
-	Light      *devices.LightDevice
-	LightState *hue.LightState
-}
-
-func (hl *HueLightContext) ApplyOnOff(state bool) error {
-
-	ls := createLightState()
-
-	ls.On = &state
-
-	return hl.SetLightState(hl.ID, ls)
+	ID                 string
+	Name               string
+	Bridge             *hue.Bridge
+	User               *hue.User
+	Light              *devices.LightDevice
+	LightState         *hue.LightState
+	lastTransitionTime *uint16
 }
 
 func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) error {
 
 	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %+v", state))
 
-	if state.OnOff != nil {
-		err := hl.ApplyOnOff(*state.OnOff)
-		if err != nil {
-			return err
-		}
+	ls := createLightState()
+
+	ls.On = state.OnOff
+
+	if state.Transition != nil {
+		ls.TransitionTime = getTransitionTime(state)
+	} else if hl.lastTransitionTime != nil {
+		ls.TransitionTime = hl.lastTransitionTime
+	} else {
+		ls.TransitionTime = &defaultTransitionTime
 	}
 
 	if state.Color != nil || state.Brightness != nil || state.Transition != nil {
@@ -109,64 +107,88 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 			return fmt.Errorf("Brightness value missing from batch set")
 		}
 
-		if state.Transition == nil {
+		// we have a default now
+		/*if state.Transition == nil {
 			return fmt.Errorf("Transition value missing from batch set")
-		}
-
-		switch state.Color.Mode {
-		case "hue":
-			ls := createLightState()
-
-			ls.Hue = getHue(state)
-			ls.Saturation = getSaturation(state)
-			ls.Brightness = getBrightness(state)
-			ls.TransitionTime = getTransitionTime(state)
-
-			return hl.SetLightState(hl.ID, ls)
-		case "xy":
-
-			ls := createLightState()
-
-			ls.Hue = getHue(state)
-			ls.Saturation = getSaturation(state)
-			ls.Brightness = getBrightness(state)
-			ls.XY = []float64{*state.Color.X, *state.Color.Y}
-			ls.TransitionTime = getTransitionTime(state)
-
-			return hl.SetLightState(hl.ID, ls)
-		case "temperature":
-
-			ls := createLightState()
-			ls.ColorTemp = getColorTemp(state)
-			ls.TransitionTime = getTransitionTime(state)
-
-			return hl.SetLightState(hl.ID, ls)
-		default:
-			return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
-		}
-
+		}*/
 	}
 
-	return nil
+	switch state.Color.Mode {
+	case "hue":
+		ls.Hue = getHue(state)
+		ls.Saturation = getSaturation(state)
+		ls.Brightness = getBrightness(state)
+
+	case "xy":
+
+		ls.Hue = getHue(state)
+		ls.Saturation = getSaturation(state)
+		ls.Brightness = getBrightness(state)
+		ls.XY = []float64{*state.Color.X, *state.Color.Y}
+
+	case "temperature":
+
+		ls.ColorTemp = getColorTemp(state)
+
+	default:
+		return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
+	}
+
+	return hl.SetLightState(ls)
 }
 
-func (hl *HueLightContext) SetLightState(lightID string, lightState *hue.LightState) error {
+func (hl *HueLightContext) SetLightState(lightState *hue.LightState) error {
 
-	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %s %+v", lightID, lightState))
+	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %s %+v", hl.ID, lightState))
 
 	if err := hl.User.SetLightState(hl.ID, lightState); err != nil {
 		return err
 	}
 
-	//la, _ := hl.User.GetLightAttributes(hl.ID)
+	return hl.UpdateState(hl.ID)
+}
 
-	//hl.Light.SetLightState(hueToNinjaLightState(la.State))
+func (hl *HueLightContext) UpdateState(lightID string) error {
+
+	log.Debugf("Updating light state: %s", lightID)
+
+	la, err := hl.User.GetLightAttributes(hl.ID)
+	if err != nil {
+		return err
+	}
+
+	hl.Light.SetLightState(hl.toNinjaLightState(la.State))
 
 	return nil
+}
 
+func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.LightDeviceState {
+
+	onOff := *huestate.On
+	brightness := float64(*huestate.Brightness) / float64(math.MaxUint16)
+	hue := float64(*huestate.Hue) / float64(math.MaxUint16)
+	saturation := float64(*huestate.Saturation) / float64(math.MaxUint16)
+
+	transition := int(defaultTransitionTime) * 100
+
+	if hl.lastTransitionTime != nil {
+		transition = int(*hl.lastTransitionTime) * 100
+	}
+
+	return &devices.LightDeviceState{
+		Color: &channels.ColorState{
+			Mode:       "hue",
+			Hue:        &hue,
+			Saturation: &saturation,
+		},
+		Brightness: &brightness,
+		OnOff:      &onOff,
+		Transition: &transition,
+	}
 }
 
 func getTransitionTime(state *devices.LightDeviceState) *uint16 {
+
 	var transTime uint16
 	if *state.Transition > 0 && *state.Transition < math.MaxUint16 {
 		transTime = uint16(*state.Transition / 100) //HUE API uses 1/10th of a second
@@ -219,22 +241,4 @@ func createLightState() *hue.LightState {
 	}
 
 	return lightState
-}
-
-func hueToNinjaLightState(huestate *hue.LightState) *devices.LightDeviceState {
-
-	onOff := *huestate.On
-	brightness := float64(*huestate.Brightness) / float64(math.MaxUint16)
-	hue := float64(*huestate.Hue) / float64(math.MaxUint16)
-	saturation := float64(*huestate.Saturation) / float64(math.MaxUint16)
-
-	return &devices.LightDeviceState{
-		Color: &channels.ColorState{
-			Mode:       "hue",
-			Hue:        &hue,
-			Saturation: &saturation,
-		},
-		Brightness: &brightness,
-		OnOff:      &onOff,
-	}
 }
