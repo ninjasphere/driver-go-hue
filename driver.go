@@ -144,6 +144,8 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 func (hl *HueLightContext) SetLightState(lightState *hue.LightState) error {
 
+	hl.lastTransitionTime = lightState.TransitionTime
+
 	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %s %+v", hl.ID, lightState))
 
 	if err := hl.User.SetLightState(hl.ID, lightState); err != nil {
