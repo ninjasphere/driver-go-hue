@@ -5,8 +5,11 @@ import (
 	"time"
 
 	"github.com/ninjasphere/go-hue"
-	"github.com/ninjasphere/go-ninja"
+	"github.com/ninjasphere/go-ninja/config"
+	"github.com/ninjasphere/go-ninja/logger"
 )
+
+var log = logger.GetLogger("hue")
 
 func getBridge() *hue.Bridge {
 	nobridge := true
@@ -33,10 +36,7 @@ func getUser(bridge *hue.Bridge) *hue.User {
 	var err error
 	noUser := true
 	retries := 0
-	serial, err := ninja.GetSerial()
-	if err != nil {
-		log.HandleError(err, "Problem determining if hue user is valid")
-	}
+	serial := config.Serial()
 	username := serial + serial //username must be long 10-40 characters
 	isvaliduser, err := bridge.IsValidUser(username)
 	if err != nil {

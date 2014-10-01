@@ -4,72 +4,134 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/bitly/go-simplejson"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ninjasphere/go-hue"
-	"github.com/ninjasphere/go-ninja"
+	"github.com/ninjasphere/go-ninja/api"
 	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/devices"
+	"github.com/ninjasphere/go-ninja/logger"
+	"github.com/ninjasphere/go-ninja/model"
 )
 
 var defaultTransitionTime uint16 = 7 // 1/10ths of a second
 
-func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*HueLightContext, error) {
+var info = ninja.LoadModuleInfo("./package.json")
 
-	log.Infof("Making hue light with Bridge: %s Id: %+v", bridge.UniqueId, l.Id)
+type HueDriver struct {
+	log       *logger.Logger
+	config    *HueDriverConfig
+	conn      *ninja.Connection
+	bridge    *hue.Bridge
+	user      *hue.User
+	sendEvent func(event string, payload interface{}) error
+}
 
-	sigs, _ := simplejson.NewJson([]byte(`{
-			"ninja:manufacturer": "Phillips",
-			"ninja:productName": "Hue",
-			"manufacturer:productModelId": "",
-			"ninja:productType": "Light",
-			"ninja:thingType": "light"
-	}`))
-
-	la, _ := user.GetLightAttributes(l.Id)
-
-	sigs.Set("manufacturer:productModelId", la.ModelId)
-
-	deviceBus, err := bus.AnnounceDevice(l.Id, "hue", l.Name, sigs)
-
-	if err != nil {
-		log.FatalError(err, "Failed to create light device bus ")
+func NewHueDriver() {
+	d := &HueDriver{
+		log: logger.GetLogger(info.Name),
 	}
 
-	light, err := devices.CreateLightDevice(l.Id, deviceBus)
+	conn, err := ninja.Connect(info.ID)
+	d.conn = conn
+	if err != nil {
+		d.log.Fatalf("Failed to connect to MQTT: %s", err)
+	}
+
+	err = conn.ExportDriver(d)
+	if err != nil {
+		d.log.Fatalf("Failed to export driver: %s", err)
+	}
+}
+
+type HueDriverConfig struct {
+}
+
+func (d *HueDriver) Start(config *HueDriverConfig) error {
+	d.config = config
+
+	d.bridge = getBridge()
+	d.user = getUser(d.bridge)
+
+	allLights, err := d.user.GetLights()
+	if err != nil {
+		d.log.HandleError(err, "Couldn't get lights")
+		return err
+	}
+
+	for _, l := range allLights {
+		_, err := d.newLight(&l)
+		if err != nil {
+			d.log.HandleError(err, "Error creating light instance")
+		}
+
+	}
+	return nil
+}
+
+func (d *HueDriver) GetModuleInfo() *model.Module {
+	return info
+}
+
+func (d *HueDriver) SetEventHandler(sendEvent func(event string, payload interface{}) error) {
+	d.sendEvent = sendEvent
+}
+
+func (d *HueDriver) newLight(bulb *hue.Light) (*HueLightContext, error) { //TODO cut this down!
+
+	name := bulb.Name
+
+	d.log.Infof("Making light on Bridge: %s ID: %s Label: %s", d.bridge.UniqueId, bulb.Id, name)
+
+	d.log.Infof("connection %s", d.conn)
+
+	attrs, _ := d.user.GetLightAttributes(bulb.Id)
+
+	light, err := devices.CreateLightDevice(d, &model.Device{
+		NaturalID:     bulb.Id,
+		NaturalIDType: "hue",
+		Name:          &name,
+		Signatures: &map[string]string{
+			"ninja:manufacturer":          "Phillips",
+			"ninja:productName":           "Hue",
+			"ninja:productType":           "Light",
+			"ninja:thingType":             "light",
+			"manufacturer:productModelId": attrs.ModelId,
+		},
+	}, d.conn)
 
 	if err != nil {
-		log.FatalError(err, "Failed to create light device")
+		d.log.FatalError(err, "Could not create light device")
 	}
+	//func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*HueLightContext, error) {
 
 	if err := light.EnableOnOffChannel(); err != nil {
-		log.FatalError(err, "Could not enable hue on-off channel")
+		d.log.FatalError(err, "Could not enable hue on-off channel")
 	}
 
 	if err := light.EnableBrightnessChannel(); err != nil {
-		log.FatalError(err, "Could not enable hue brightness channel")
+		d.log.FatalError(err, "Could not enable hue brightness channel")
 	}
 
 	if err := light.EnableColorChannel("temperature", "hue"); err != nil {
-		log.FatalError(err, "Could not enable hue color channel")
+		d.log.FatalError(err, "Could not enable hue color channel")
 	}
 
 	if err := light.EnableTransitionChannel(); err != nil {
-		log.FatalError(err, "Could not enable hue transition channel")
+		d.log.FatalError(err, "Could not enable hue transition channel")
 	}
 
 	hl := &HueLightContext{
-		ID:         l.Id,
-		Name:       l.Name,
-		Bridge:     bridge,
-		User:       user,
+		ID:         bulb.Id,
+		Name:       bulb.Name,
+		Bridge:     d.bridge,
+		User:       d.user,
 		Light:      light,
 		LightState: &hue.LightState{},
 	}
 
 	light.ApplyLightState = hl.ApplyLightState
 
-	return hl, hl.UpdateState(l.Id)
+	return hl, hl.UpdateState()
 }
 
 type HueLightContext struct {
@@ -80,11 +142,12 @@ type HueLightContext struct {
 	Light              *devices.LightDevice
 	LightState         *hue.LightState
 	lastTransitionTime *uint16
+	log                logger.Logger
 }
 
 func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) error {
 
-	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %+v", state))
+	hl.log.Debugf(spew.Sprintf("Sending light state to hue bulb: %+v", state))
 
 	ls := createLightState()
 
@@ -146,18 +209,18 @@ func (hl *HueLightContext) SetLightState(lightState *hue.LightState) error {
 
 	hl.lastTransitionTime = lightState.TransitionTime
 
-	log.Debugf(spew.Sprintf("Sending light state to hue bulb: %s %+v", hl.ID, lightState))
+	hl.log.Debugf(spew.Sprintf("Sending light state to hue bulb: %s %+v", hl.ID, lightState))
 
 	if err := hl.User.SetLightState(hl.ID, lightState); err != nil {
 		return err
 	}
 
-	return hl.UpdateState(hl.ID)
+	return hl.UpdateState()
 }
 
-func (hl *HueLightContext) UpdateState(lightID string) error {
+func (hl *HueLightContext) UpdateState() error {
 
-	log.Debugf("Updating light state: %s", lightID)
+	hl.log.Debugf("Updating light state")
 
 	la, err := hl.User.GetLightAttributes(hl.ID)
 	if err != nil {
