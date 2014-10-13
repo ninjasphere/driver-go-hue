@@ -54,7 +54,8 @@ func getUser(bridge *hue.Bridge) *hue.User {
 					log.Infof("Couldn't make user, push link button. Retry: %d", retries)
 					time.Sleep(time.Second * 2) //this sucks
 				} else {
-					log.HandleError(err, "Error creating user")
+					log.Debugf("Error creating user %s", err)
+					time.Sleep(time.Second * 20)
 				}
 			}
 
