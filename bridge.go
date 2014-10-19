@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ninjasphere/go-hue"
+	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/config"
 	"github.com/ninjasphere/go-ninja/logger"
 )
@@ -31,7 +32,14 @@ func getBridge() *hue.Bridge {
 	return allbridges[0]
 }
 
-func getUser(bridge *hue.Bridge) *hue.User {
+var pushButtonNotification = channels.Notification{
+	Title:    "Please press the pairing button on your Philips Hue base-station",
+	Subtitle: "New Hue base-station found",
+	Priority: channels.NotificationPriorityDefault,
+	Category: channels.NotificationCategorySuggestion,
+}
+
+func getUser(driver *HueDriver, bridge *hue.Bridge) *hue.User {
 	var user *hue.User
 	var err error
 	noUser := true
@@ -43,6 +51,8 @@ func getUser(bridge *hue.Bridge) *hue.User {
 		log.Warningf("Problem determining if hue user is valid")
 	}
 
+	var notificationTime time.Time
+
 	if isvaliduser {
 		user = hue.NewUserWithBridge(username, bridge)
 	} else {
@@ -52,7 +62,14 @@ func getUser(bridge *hue.Bridge) *hue.User {
 				if strings.Contains(err.Error(), "101") { // there's probably a nicer way to check this
 					retries++
 					log.Infof("Couldn't make user, push link button. Retry: %d", retries)
+
+					if time.Since(notificationTime) < time.Minute*5 {
+						notificationTime = time.Now()
+						driver.sendEvent("notification", pushButtonNotification)
+					}
+
 					time.Sleep(time.Second * 2) //this sucks
+
 				} else {
 					log.Debugf("Error creating user %s", err)
 					time.Sleep(time.Second * 20)

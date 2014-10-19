@@ -50,7 +50,7 @@ func (d *HueDriver) Start(config *HueDriverConfig) error {
 	d.config = config
 
 	d.bridge = getBridge()
-	d.user = getUser(d.bridge)
+	d.user = getUser(d, d.bridge)
 
 	allLights, err := d.user.GetLights()
 	if err != nil {
