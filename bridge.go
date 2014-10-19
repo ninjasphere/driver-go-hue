@@ -63,7 +63,7 @@ func getUser(driver *HueDriver, bridge *hue.Bridge) *hue.User {
 					retries++
 					log.Infof("Couldn't make user, push link button. Retry: %d", retries)
 
-					if time.Since(notificationTime) < time.Minute*5 {
+					if time.Since(notificationTime) > time.Minute*5 {
 						notificationTime = time.Now()
 						driver.sendEvent("notification", pushButtonNotification)
 					}
