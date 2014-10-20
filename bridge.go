@@ -61,7 +61,7 @@ func getUser(driver *HueDriver, bridge *hue.Bridge) *hue.User {
 			if err != nil {
 				if strings.Contains(err.Error(), "101") { // there's probably a nicer way to check this
 					retries++
-					log.Infof("Couldn't make user, push link button. Retry: %d", retries)
+					log.Debugf("Couldn't make user, push link button. Retry: %d", retries)
 
 					if time.Since(notificationTime) > time.Minute*5 {
 						notificationTime = time.Now()
