@@ -127,11 +127,12 @@ func (d *HueDriver) newLight(bulb *hue.Light) (*HueLightContext, error) { //TODO
 		User:       d.user,
 		Light:      light,
 		LightState: &hue.LightState{},
+		log:        logger.GetLogger(fmt.Sprintf("huelight:%s", bulb.Id)),
 	}
 
 	light.ApplyLightState = hl.ApplyLightState
 
-	return hl, hl.UpdateState()
+	return hl, hl.updateState()
 }
 
 type HueLightContext struct {
@@ -142,7 +143,7 @@ type HueLightContext struct {
 	Light              *devices.LightDevice
 	LightState         *hue.LightState
 	lastTransitionTime *uint16
-	log                logger.Logger
+	log                *logger.Logger
 }
 
 func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) error {
@@ -153,10 +154,10 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 	// Hue doesn't like you setting anything if you're off
 	if state.OnOff == nil || !*state.OnOff {
-		ls := createLightState()
+		// ls := createLightState()
 		on := false
 		ls.On = &on
-		return hl.SetLightState(ls)
+		return hl.setLightState(ls)
 	}
 
 	ls.On = &*state.OnOff
@@ -202,10 +203,10 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 		return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
 	}
 
-	return hl.SetLightState(ls)
+	return hl.setLightState(ls)
 }
 
-func (hl *HueLightContext) SetLightState(lightState *hue.LightState) error {
+func (hl *HueLightContext) setLightState(lightState *hue.LightState) error {
 
 	hl.lastTransitionTime = lightState.TransitionTime
 
@@ -215,19 +216,21 @@ func (hl *HueLightContext) SetLightState(lightState *hue.LightState) error {
 		return err
 	}
 
-	return hl.UpdateState()
+	return hl.updateState()
 }
 
-func (hl *HueLightContext) UpdateState() error {
-
-	hl.log.Debugf("Updating light state")
+func (hl *HueLightContext) updateState() error {
 
 	la, err := hl.User.GetLightAttributes(hl.ID)
 	if err != nil {
 		return err
 	}
 
-	hl.Light.SetLightState(hl.toNinjaLightState(la.State))
+	state := hl.toNinjaLightState(la.State)
+
+	hl.log.Debugf(spew.Sprintf("Updating light state: %v", state))
+
+	hl.Light.SetLightState(state)
 
 	return nil
 }
