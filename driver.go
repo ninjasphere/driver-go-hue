@@ -142,6 +142,7 @@ type HueLightContext struct {
 	User               *hue.User
 	Light              *devices.LightDevice
 	LightState         *hue.LightState
+	desiredState       *devices.LightDeviceState // used when the globes color is changed while it is off
 	lastTransitionTime *uint16
 	log                *logger.Logger
 }
@@ -154,13 +155,21 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 	// Hue doesn't like you setting anything if you're off
 	if state.OnOff == nil || !*state.OnOff {
-		// ls := createLightState()
+
+		hl.desiredState = state
+
 		on := false
 		ls.On = &on
 		return hl.setLightState(ls)
 	}
 
 	ls.On = &*state.OnOff
+
+	if hl.desiredState != nil {
+		log.Debugf(spew.Sprintf("retrieving desired state: %v", hl.desiredState))
+		state = hl.desiredState
+	}
+
 	ls.Brightness = getBrightness(state)
 
 	if state.Transition != nil {
@@ -202,6 +211,9 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 	default:
 		return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
 	}
+
+	// clear the desired state
+	hl.desiredState = nil
 
 	return hl.setLightState(ls)
 }
