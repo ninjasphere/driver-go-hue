@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -207,6 +208,7 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 
 		ls.ColorTemp = getColorTemp(state)
 
+		hl.log.Debugf("color temp: %d ", *ls.ColorTemp)
 	default:
 		return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
 	}
@@ -254,10 +256,9 @@ func (hl *HueLightContext) updateState() error {
 
 func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.LightDeviceState {
 
+	hl.log.Debugf(spew.Sprintf("got hue state of : %+v", huestate))
+
 	onOff := *huestate.On
-	brightness := float64(*huestate.Brightness) / float64(math.MaxUint16)
-	hue := float64(*huestate.Hue) / float64(math.MaxUint16)
-	saturation := float64(*huestate.Saturation) / float64(math.MaxUint16)
 
 	transition := int(defaultTransitionTime) * 100
 
@@ -265,16 +266,57 @@ func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.
 		transition = int(*hl.lastTransitionTime) * 100
 	}
 
-	return &devices.LightDeviceState{
-		Color: &channels.ColorState{
-			Mode:       "hue",
-			Hue:        &hue,
-			Saturation: &saturation,
-		},
-		Brightness: &brightness,
-		OnOff:      &onOff,
-		Transition: &transition,
+	brightness := float64(*huestate.Brightness) / float64(math.MaxUint16)
+
+	var lds *devices.LightDeviceState
+
+	switch huestate.ColorMode {
+	case "ct":
+		// see: http://en.wikipedia.org/wiki/Mired
+		// t = 1000000 / m
+		temp := float64(1000000 / int(*huestate.ColorTemp))
+
+		lds = &devices.LightDeviceState{
+			Color: &channels.ColorState{
+				Mode:        "temperature",
+				Temperature: &temp,
+			},
+			Brightness: &brightness,
+			OnOff:      &onOff,
+			Transition: &transition,
+		}
+	case "xy":
+
+		lds = &devices.LightDeviceState{
+			Color: &channels.ColorState{
+				Mode: "temperature",
+				X:    &huestate.XY[0],
+				Y:    &huestate.XY[1],
+			},
+			Brightness: &brightness,
+			OnOff:      &onOff,
+			Transition: &transition,
+		}
+	case "hs":
+		hue := float64(*huestate.Hue) / float64(math.MaxUint16)
+		saturation := float64(*huestate.Saturation) / float64(math.MaxUint16)
+
+		lds = &devices.LightDeviceState{
+			Color: &channels.ColorState{
+				Mode:       "hue",
+				Hue:        &hue,
+				Saturation: &saturation,
+			},
+			Brightness: &brightness,
+			OnOff:      &onOff,
+			Transition: &transition,
+		}
+	default:
+		hl.log.FatalError(errors.New("Invalid color mode"), "Failed to load hue state")
 	}
+
+	return lds
+
 }
 
 func getTransitionTime(state *devices.LightDeviceState) *uint16 {
@@ -304,7 +346,9 @@ func getBrightness(state *devices.LightDeviceState) *uint8 {
 }
 
 func getColorTemp(state *devices.LightDeviceState) *uint16 {
-	temp := uint16(*state.Color.Temperature)
+	// see: http://en.wikipedia.org/wiki/Mired
+	// m = 1000000 / t
+	temp := uint16(1000000 / int(*state.Color.Temperature))
 	return &temp
 }
 
