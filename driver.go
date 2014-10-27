@@ -156,19 +156,18 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 	// Hue doesn't like you setting anything if you're off
 	if state.OnOff == nil || !*state.OnOff {
 
+		// cache the desired state so we can send this later
+		// note this is to get around the fact we can't send color to the hue bulb if it is OFF
+		// but we need to keep these changes for when the user turns it on!
 		hl.desiredState = state
 
+		// just set the on-off state and pass it to the globe
 		on := false
 		ls.On = &on
 		return hl.setLightState(ls)
 	}
 
 	ls.On = &*state.OnOff
-
-	if hl.desiredState != nil {
-		log.Debugf(spew.Sprintf("retrieving desired state: %v", hl.desiredState))
-		state = hl.desiredState
-	}
 
 	ls.Brightness = getBrightness(state)
 
@@ -239,6 +238,12 @@ func (hl *HueLightContext) updateState() error {
 	}
 
 	state := hl.toNinjaLightState(la.State)
+
+	// if we have a desired state cached use that, otherwise use the normal translated one
+	if hl.desiredState != nil {
+		state = hl.desiredState
+		hl.desiredState = nil
+	}
 
 	hl.log.Debugf(spew.Sprintf("Updating light state: %v", state))
 
