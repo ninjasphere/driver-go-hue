@@ -2,12 +2,7 @@
 
 package main
 
-import (
-	"github.com/bugsnag/bugsnag-go"
-	"github.com/ninjasphere/go-ninja/logger"
-)
-
-var debug = logger.GetLogger("").Warningf
+import "github.com/bugsnag/bugsnag-go"
 
 func init() {
 
