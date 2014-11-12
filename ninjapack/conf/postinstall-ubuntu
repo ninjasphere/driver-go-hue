@@ -1,1 +1,1 @@
-nservice driver-go-hue start
+nservice -q driver-go-hue start
