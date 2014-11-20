@@ -1,2 +1,2 @@
-/opt/ninjablocks/bin/nservice -q driver-go-hue stop
-/opt/ninjablocks/bin/nservice -q driver-go-hue start
+/opt/ninjablocks/bin/nservice -q driver-go-hue stop || true
+/opt/ninjablocks/bin/nservice -q driver-go-hue start  || true
