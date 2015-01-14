@@ -266,7 +266,7 @@ func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.
 		transition = int(*hl.lastTransitionTime) * 100
 	}
 
-	brightness := float64(*huestate.Brightness) / float64(math.MaxUint16)
+	brightness := float64(*huestate.Brightness) / float64(math.MaxUint8)
 
 	var lds *devices.LightDeviceState
 
@@ -341,7 +341,7 @@ func getSaturation(state *devices.LightDeviceState) *uint8 {
 }
 
 func getBrightness(state *devices.LightDeviceState) *uint8 {
-	brightness := uint8(*state.Brightness * math.MaxUint16)
+	brightness := uint8(*state.Brightness * math.MaxUint8)
 	return &brightness
 }
 
