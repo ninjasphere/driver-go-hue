@@ -131,6 +131,12 @@ func (d *HueDriver) newLight(bulb *hue.Light) (*HueLightContext, error) { //TODO
 		log:        logger.GetLogger(fmt.Sprintf("huelight:%s", bulb.Id)),
 	}
 
+	light.ApplyIdentify = hl.ApplyIdentify
+
+	if err := light.EnableIdentifyChannel(); err != nil {
+		d.log.FatalError(err, "Could not enable identify channel")
+	}
+
 	light.ApplyLightState = hl.ApplyLightState
 
 	return hl, hl.updateState()
@@ -146,6 +152,14 @@ type HueLightContext struct {
 	desiredState       *devices.LightDeviceState // used when the globes color is changed while it is off
 	lastTransitionTime *uint16
 	log                *logger.Logger
+}
+
+func (hl *HueLightContext) ApplyIdentify() error {
+	state := &hue.LightState{
+		Alert: "lselect", // Toggles 10x
+	}
+
+	return hl.User.SetLightState(hl.ID, state)
 }
 
 func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) error {
@@ -267,6 +281,8 @@ func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.
 	}
 
 	brightness := float64(*huestate.Brightness) / float64(math.MaxUint8)
+
+	hl.log.Infof("Converted brightness from %v to %v", *huestate.Brightness, brightness)
 
 	var lds *devices.LightDeviceState
 
