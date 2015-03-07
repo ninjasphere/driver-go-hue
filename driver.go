@@ -17,7 +17,12 @@ import (
 
 var defaultTransitionTime = 500 // 500ms
 var defaultBrightness = 1.0     // Full brightness
-var defaultColor = channels.ColorWhite
+var xxx float64
+var defaultColor = channels.ColorState{
+	Mode:       "Hue",
+	Hue:        &xxx,
+	Saturation: &xxx,
+}
 
 var info = ninja.LoadModuleInfo("./package.json")
 
