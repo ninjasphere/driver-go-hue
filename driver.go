@@ -415,7 +415,7 @@ func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.
 			}
 		case "xy":
 			lds.Color = &channels.ColorState{
-				Mode: "temperature",
+				Mode: "xy",
 				X:    &huestate.XY[0],
 				Y:    &huestate.XY[1],
 			}
