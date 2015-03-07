@@ -91,27 +91,44 @@ func (d *HueDriver) newLight(bulb *hue.Light) (*HueLightContext, error) { //TODO
 
 	d.log.Infof("Making light on Bridge: %s ID: %s Label: %s", d.bridge.UniqueId, bulb.Id, name)
 
-	d.log.Infof("connection %s", d.conn)
-
 	attrs, _ := d.user.GetLightAttributes(bulb.Id)
 
+	d.log.Debugf("Found hue bulb %s - %s", dump(*bulb), dump(attrs))
+
+	sigs := map[string]string{
+		"ninja:productType": "Light",
+		"ninja:thingType":   "light",
+		"hue:bridge":        d.user.Bridge.UniqueId,
+		"hue:modelId":       attrs.ModelId,
+		"hue:type":          attrs.Type,
+		"hue:swversion":     attrs.SoftwareVersion,
+	}
+
+	if attrs.ModelId != "ZLL Light" {
+		sigs["ninja:manufacturer"] = "Phillips"
+		sigs["ninja:productName"] = "Hue"
+	}
+
 	light, err := devices.CreateLightDevice(d, &model.Device{
-		NaturalID:     bulb.Id,
+		NaturalID:/* SHOULD HAVE BRIDGE ID IN HERE!! d.user.Bridge.UniqueId + "-" +*/ bulb.Id,
 		NaturalIDType: "hue",
 		Name:          &name,
-		Signatures: &map[string]string{
-			"ninja:manufacturer":          "Phillips",
-			"ninja:productName":           "Hue",
-			"ninja:productType":           "Light",
-			"ninja:thingType":             "light",
-			"manufacturer:productModelId": attrs.ModelId,
-		},
+		Signatures:    &sigs,
 	}, d.conn)
 
 	if err != nil {
 		d.log.FatalError(err, "Could not create light device")
 	}
 	//func NewLight(l *hue.Light, bus *ninja.DriverBus, bridge *hue.Bridge, user *hue.User) (*HueLightContext, error) {
+
+	hl := &HueLightContext{
+		ID:     bulb.Id,
+		Name:   bulb.Name,
+		Bridge: d.bridge,
+		User:   d.user,
+		Light:  light,
+		log:    logger.GetLogger(fmt.Sprintf("huelight:%s", bulb.Id)),
+	}
 
 	if err := light.EnableOnOffChannel(); err != nil {
 		d.log.FatalError(err, "Could not enable hue on-off channel")
@@ -121,21 +138,15 @@ func (d *HueDriver) newLight(bulb *hue.Light) (*HueLightContext, error) { //TODO
 		d.log.FatalError(err, "Could not enable hue brightness channel")
 	}
 
-	if err := light.EnableColorChannel("temperature", "hue"); err != nil {
-		d.log.FatalError(err, "Could not enable hue color channel")
+	if attrs.State.ColorMode != "" {
+		if err := light.EnableColorChannel("temperature", "hue"); err != nil {
+			d.log.FatalError(err, "Could not enable hue color channel")
+		}
+		hl.colorEnabled = true
 	}
 
 	if err := light.EnableTransitionChannel(); err != nil {
 		d.log.FatalError(err, "Could not enable hue transition channel")
-	}
-
-	hl := &HueLightContext{
-		ID:     bulb.Id,
-		Name:   bulb.Name,
-		Bridge: d.bridge,
-		User:   d.user,
-		Light:  light,
-		log:    logger.GetLogger(fmt.Sprintf("huelight:%s", bulb.Id)),
 	}
 
 	light.ApplyIdentify = hl.ApplyIdentify
@@ -158,6 +169,7 @@ type HueLightContext struct {
 	lastState      *devices.LightDeviceState // Used to fill an incomplete request, using the previous state
 	desiredState   devices.LightDeviceState  // Used when the globe is updated while it is off
 	lastTransition *int
+	colorEnabled   bool
 	log            *logger.Logger
 }
 
@@ -272,39 +284,42 @@ func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) erro
 		TransitionTime: getTransitionTime(state),
 	}
 
-	switch state.Color.Mode {
-	case "hue":
+	if hl.colorEnabled {
 
-		if state.Color.Hue == nil {
-			return fmt.Errorf("Missing color hue")
+		switch state.Color.Mode {
+		case "hue":
+
+			if state.Color.Hue == nil {
+				return fmt.Errorf("Missing color hue")
+			}
+
+			if state.Color.Saturation == nil {
+				return fmt.Errorf("Missing color saturation")
+			}
+
+			outgoingState.Hue = getHue(state)
+			outgoingState.Saturation = getSaturation(state)
+
+		case "xy":
+
+			if state.Color.X == nil || state.Color.Y == nil {
+				return fmt.Errorf("Missing X or Y from xy color state: %s", dump(state.Color))
+			}
+
+			outgoingState.XY = []float64{*state.Color.X, *state.Color.Y}
+
+		case "temperature":
+
+			if state.Color.Temperature == nil {
+				return fmt.Errorf("Missing color temperature: %+v", *state.Color)
+			}
+
+			outgoingState.ColorTemp = getColorTemp(state)
+
+			hl.log.Debugf("color temp: %d ", *outgoingState.ColorTemp)
+		default:
+			return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
 		}
-
-		if state.Color.Saturation == nil {
-			return fmt.Errorf("Missing color saturation")
-		}
-
-		outgoingState.Hue = getHue(state)
-		outgoingState.Saturation = getSaturation(state)
-
-	case "xy":
-
-		if state.Color.X == nil || state.Color.Y == nil {
-			return fmt.Errorf("Missing X or Y from xy color state: %s", dump(state.Color))
-		}
-
-		outgoingState.XY = []float64{*state.Color.X, *state.Color.Y}
-
-	case "temperature":
-
-		if state.Color.Temperature == nil {
-			return fmt.Errorf("Missing color temperature: %+v", *state.Color)
-		}
-
-		outgoingState.ColorTemp = getColorTemp(state)
-
-		hl.log.Debugf("color temp: %d ", *outgoingState.ColorTemp)
-	default:
-		return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
 	}
 
 	return hl.setLightState(outgoingState)
@@ -380,51 +395,42 @@ func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.
 
 	hl.log.Infof("Converted brightness from %v to %v", *huestate.Brightness, brightness)
 
-	var lds *devices.LightDeviceState
+	lds := &devices.LightDeviceState{
+		Brightness: &brightness,
+		OnOff:      &onOff,
+		Transition: &transition,
+	}
 
-	switch huestate.ColorMode {
-	case "ct":
-		// see: http://en.wikipedia.org/wiki/Mired
-		// t = 1000000 / m
-		temp := float64(1000000 / int(*huestate.ColorTemp))
+	if hl.colorEnabled {
 
-		lds = &devices.LightDeviceState{
-			Color: &channels.ColorState{
+		switch huestate.ColorMode {
+		case "ct":
+			// see: http://en.wikipedia.org/wiki/Mired
+			// t = 1000000 / m
+			temp := float64(1000000 / int(*huestate.ColorTemp))
+
+			lds.Color = &channels.ColorState{
 				Mode:        "temperature",
 				Temperature: &temp,
-			},
-			Brightness: &brightness,
-			OnOff:      &onOff,
-			Transition: &transition,
-		}
-	case "xy":
-
-		lds = &devices.LightDeviceState{
-			Color: &channels.ColorState{
+			}
+		case "xy":
+			lds.Color = &channels.ColorState{
 				Mode: "temperature",
 				X:    &huestate.XY[0],
 				Y:    &huestate.XY[1],
-			},
-			Brightness: &brightness,
-			OnOff:      &onOff,
-			Transition: &transition,
-		}
-	case "hs":
-		hue := float64(*huestate.Hue) / float64(math.MaxUint16)
-		saturation := float64(*huestate.Saturation) / float64(math.MaxUint16)
+			}
+		case "hs":
+			hue := float64(*huestate.Hue) / float64(math.MaxUint16)
+			saturation := float64(*huestate.Saturation) / float64(math.MaxUint16)
 
-		lds = &devices.LightDeviceState{
-			Color: &channels.ColorState{
+			lds.Color = &channels.ColorState{
 				Mode:       "hue",
 				Hue:        &hue,
 				Saturation: &saturation,
-			},
-			Brightness: &brightness,
-			OnOff:      &onOff,
-			Transition: &transition,
+			}
+		default:
+			hl.log.FatalError(errors.New("Invalid color mode"), "Failed to load hue state")
 		}
-	default:
-		hl.log.FatalError(errors.New("Invalid color mode"), "Failed to load hue state")
 	}
 
 	hl.log.Infof("Converted to ninja state %s", dump(lds))

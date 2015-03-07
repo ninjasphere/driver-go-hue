@@ -5,7 +5,6 @@ Sphere driver which interfaces with the Philips Hue light globes via their bridg
 # Known Issues
 
 * Only supports one bridge at the moment.
-* State not being retrieved from bridge.
 
 # License
-Copyright (c) 2014 Ninjablocks Inc
+Copyright (c) 2014-2015 Ninja Blocks Inc.
