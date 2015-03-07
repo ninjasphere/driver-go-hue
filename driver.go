@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -14,7 +15,9 @@ import (
 	"github.com/ninjasphere/go-ninja/model"
 )
 
-var defaultTransitionTime uint16 = 7 // 1/10ths of a second
+var defaultTransitionTime = 500 // 500ms
+var defaultBrightness = 1.0     // Full brightness
+var defaultColor = channels.ColorWhite
 
 var info = ninja.LoadModuleInfo("./package.json")
 
@@ -122,13 +125,12 @@ func (d *HueDriver) newLight(bulb *hue.Light) (*HueLightContext, error) { //TODO
 	}
 
 	hl := &HueLightContext{
-		ID:         bulb.Id,
-		Name:       bulb.Name,
-		Bridge:     d.bridge,
-		User:       d.user,
-		Light:      light,
-		LightState: &hue.LightState{},
-		log:        logger.GetLogger(fmt.Sprintf("huelight:%s", bulb.Id)),
+		ID:     bulb.Id,
+		Name:   bulb.Name,
+		Bridge: d.bridge,
+		User:   d.user,
+		Light:  light,
+		log:    logger.GetLogger(fmt.Sprintf("huelight:%s", bulb.Id)),
 	}
 
 	light.ApplyIdentify = hl.ApplyIdentify
@@ -143,15 +145,15 @@ func (d *HueDriver) newLight(bulb *hue.Light) (*HueLightContext, error) { //TODO
 }
 
 type HueLightContext struct {
-	ID                 string
-	Name               string
-	Bridge             *hue.Bridge
-	User               *hue.User
-	Light              *devices.LightDevice
-	LightState         *hue.LightState
-	desiredState       *devices.LightDeviceState // used when the globes color is changed while it is off
-	lastTransitionTime *uint16
-	log                *logger.Logger
+	ID             string
+	Name           string
+	Bridge         *hue.Bridge
+	User           *hue.User
+	Light          *devices.LightDevice
+	lastState      *devices.LightDeviceState // Used to fill an incomplete request, using the previous state
+	desiredState   devices.LightDeviceState  // Used when the globe is updated while it is off
+	lastTransition *int
+	log            *logger.Logger
 }
 
 func (hl *HueLightContext) ApplyIdentify() error {
@@ -164,80 +166,148 @@ func (hl *HueLightContext) ApplyIdentify() error {
 
 func (hl *HueLightContext) ApplyLightState(state *devices.LightDeviceState) error {
 
-	hl.log.Debugf(spew.Sprintf("Sending light state to hue bulb: %+v", state))
+	hl.log.Infof("Applying light state: %s", dump(*state))
 
-	ls := createLightState()
+	if state.OnOff == nil {
+
+		if state.Color == nil && state.Brightness == nil {
+			// We've been given nothing. Nothing to do!
+
+			if state.Transition != nil {
+				// We at least got a transition time... keep that for later
+				hl.desiredState.Transition = state.Transition
+			}
+			return nil
+		}
+
+		// We have been color or brightness, but not an on-off state, assume they want it on.
+		on := true
+		state.OnOff = &on
+	}
+
+	if state.Transition == nil {
+		if hl.desiredState.Transition != nil {
+			// Use the transition previously asked for
+			state.Transition = hl.desiredState.Transition
+		} else if hl.lastState != nil && hl.lastState.Transition != nil {
+			// Use the transition we last used
+			state.Transition = hl.lastState.Transition
+		} else {
+			// Use the default
+			state.Transition = &defaultTransitionTime
+		}
+	}
+
+	hl.lastTransition = state.Transition
 
 	// Hue doesn't like you setting anything if you're off
-	if state.OnOff == nil || !*state.OnOff {
+	if !*state.OnOff {
 
 		// cache the desired state so we can send this later
 		// note this is to get around the fact we can't send color to the hue bulb if it is OFF
 		// but we need to keep these changes for when the user turns it on!
-		hl.desiredState = state
+		if state.Brightness != nil {
+			hl.desiredState.Brightness = state.Brightness
+		}
+		if state.Transition != nil {
+			hl.desiredState.Transition = state.Transition
+		}
+		if state.Color != nil {
+			hl.desiredState.Color = state.Color
+		}
 
-		// just set the on-off state and pass it to the globe
+		// just set the on-off state and transition and pass it to the globe
 		on := false
-		ls.On = &on
-		return hl.setLightState(ls)
+		return hl.setLightState(&hue.LightState{
+			On:             &on,
+			TransitionTime: getTransitionTime(state),
+		})
 	}
 
-	ls.On = &*state.OnOff
+	if state.Brightness == nil {
+		// We have no brightness, but hue requires one to be sent.
 
-	ls.Brightness = getBrightness(state)
-
-	if state.Transition != nil {
-		ls.TransitionTime = getTransitionTime(state)
-	} else if hl.lastTransitionTime != nil {
-		ls.TransitionTime = hl.lastTransitionTime
-	} else {
-		ls.TransitionTime = &defaultTransitionTime
+		if hl.desiredState.Brightness != nil {
+			// Use the brightness previously asked for
+			state.Brightness = hl.desiredState.Brightness
+		} else if hl.lastState != nil && hl.lastState.Brightness != nil {
+			// Use the previously seen brightness
+			state.Brightness = hl.lastState.Brightness
+		} else {
+			// Use the default
+			state.Brightness = &defaultBrightness
+		}
 	}
 
-	if state.Color != nil || state.Brightness != nil || state.Transition != nil {
-		if state.Color == nil {
-			return fmt.Errorf("Color value missing from batch set")
-		}
+	if state.Color == nil {
+		// We have no color, but hue requires one to be sent.
 
-		if state.Brightness == nil {
-			return fmt.Errorf("Brightness value missing from batch set")
+		if hl.desiredState.Color != nil {
+			// Use the color previously asked for
+			state.Color = hl.desiredState.Color
+		} else if hl.lastState != nil && hl.lastState.Color != nil {
+			// Use the color we last saw
+			state.Color = hl.lastState.Color
+		} else {
+			// Set it to the default color
+			state.Color = &defaultColor
 		}
+	}
 
-		// we have a default now
-		/*if state.Transition == nil {
-			return fmt.Errorf("Transition value missing from batch set")
-		}*/
+	if state.OnOff == nil || state.Color == nil || state.Brightness == nil || state.Transition == nil {
+		// This shouldn't happen... but just in case...
+		return fmt.Errorf("Values missing from light state... %s", dump(state))
+	}
+
+	hl.log.Debugf("Applying state (after defaults + desired) : %s", dump(state))
+
+	outgoingState := &hue.LightState{
+		On:             &*state.OnOff, // Always true at this point
+		Brightness:     getBrightness(state),
+		TransitionTime: getTransitionTime(state),
 	}
 
 	switch state.Color.Mode {
 	case "hue":
-		ls.Hue = getHue(state)
-		ls.Saturation = getSaturation(state)
+
+		if state.Color.Hue == nil {
+			return fmt.Errorf("Missing color hue")
+		}
+
+		if state.Color.Saturation == nil {
+			return fmt.Errorf("Missing color saturation")
+		}
+
+		outgoingState.Hue = getHue(state)
+		outgoingState.Saturation = getSaturation(state)
 
 	case "xy":
 
-		ls.XY = []float64{*state.Color.X, *state.Color.Y}
+		if state.Color.X == nil || state.Color.Y == nil {
+			return fmt.Errorf("Missing X or Y from xy color state: %s", dump(state.Color))
+		}
+
+		outgoingState.XY = []float64{*state.Color.X, *state.Color.Y}
 
 	case "temperature":
 
-		ls.ColorTemp = getColorTemp(state)
+		if state.Color.Temperature == nil {
+			return fmt.Errorf("Missing color temperature: %+v", *state.Color)
+		}
 
-		hl.log.Debugf("color temp: %d ", *ls.ColorTemp)
+		outgoingState.ColorTemp = getColorTemp(state)
+
+		hl.log.Debugf("color temp: %d ", *outgoingState.ColorTemp)
 	default:
 		return fmt.Errorf("Unknown color mode %s", state.Color.Mode)
 	}
 
-	// clear the desired state
-	hl.desiredState = nil
-
-	return hl.setLightState(ls)
+	return hl.setLightState(outgoingState)
 }
 
 func (hl *HueLightContext) setLightState(lightState *hue.LightState) error {
 
-	hl.lastTransitionTime = lightState.TransitionTime
-
-	hl.log.Debugf(spew.Sprintf("Sending light state to hue bulb: %s %+v", hl.ID, lightState))
+	hl.log.Debugf("Sending light state to hue bulb: %s", dump(lightState))
 
 	if err := hl.User.SetLightState(hl.ID, lightState); err != nil {
 		return err
@@ -255,29 +325,50 @@ func (hl *HueLightContext) updateState() error {
 
 	state := hl.toNinjaLightState(la.State)
 
-	// if we have a desired state cached use that, otherwise use the normal translated one
-	if hl.desiredState != nil {
-		state = hl.desiredState
-		hl.desiredState = nil
+	// If the light is on, we can destroy our desired state.. as it has either been used,
+	// or the user has set it to something else using another app.
+	if *state.OnOff {
+		hl.desiredState = devices.LightDeviceState{}
 	}
 
-	hl.log.Debugf(spew.Sprintf("Updating light state: %v", state))
+	// if we have desired state... use that.
+	if hl.desiredState.Color != nil {
+		state.Color = hl.desiredState.Color
+	}
+	if hl.desiredState.Brightness != nil {
+		state.Brightness = hl.desiredState.Brightness
+	}
+	if hl.desiredState.Transition != nil {
+		state.Transition = hl.desiredState.Transition
+	}
+
+	hl.log.Debugf("Updating light state: %+v", state)
+	hl.lastState = state
 
 	hl.Light.SetLightState(state)
 
 	return nil
 }
 
+// ES: Yes, it isn't great. Whatever. Go fix something else.
+func dump(obj interface{}) string {
+	x, err := json.Marshal(obj)
+	if err != nil {
+		return spew.Sprintf("%+v", obj)
+	}
+	return string(x)
+}
+
 func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.LightDeviceState {
 
-	hl.log.Debugf(spew.Sprintf("got hue state of : %+v", huestate))
+	hl.log.Debugf("Converting hue state to ninja %s", dump(huestate))
 
 	onOff := *huestate.On
 
-	transition := int(defaultTransitionTime) * 100
+	transition := defaultTransitionTime
 
-	if hl.lastTransitionTime != nil {
-		transition = int(*hl.lastTransitionTime) * 100
+	if hl.lastTransition != nil {
+		transition = *hl.lastTransition
 	}
 
 	brightness := float64(*huestate.Brightness) / float64(math.MaxUint8)
@@ -331,8 +422,9 @@ func (hl *HueLightContext) toNinjaLightState(huestate *hue.LightState) *devices.
 		hl.log.FatalError(errors.New("Invalid color mode"), "Failed to load hue state")
 	}
 
-	return lds
+	hl.log.Infof("Converted to ninja state %s", dump(lds))
 
+	return lds
 }
 
 func getTransitionTime(state *devices.LightDeviceState) *uint16 {
@@ -366,8 +458,4 @@ func getColorTemp(state *devices.LightDeviceState) *uint16 {
 	// m = 1000000 / t
 	temp := uint16(1000000 / int(*state.Color.Temperature))
 	return &temp
-}
-
-func createLightState() *hue.LightState {
-	return &hue.LightState{}
 }
